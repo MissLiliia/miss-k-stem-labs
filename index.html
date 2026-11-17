@@ -202,6 +202,23 @@ code.big{font-size:18px;background:#f3f0ff;color:#5f3dc4;padding:2px 8px;border-
 .toast{position:fixed;right:18px;bottom:18px;background:linear-gradient(135deg,#ffd43b,#f59f00);color:#3b2600;font-weight:800;border-radius:14px;padding:12px 16px;z-index:60;box-shadow:0 8px 24px rgba(0,0,0,.18)}
 @media (max-width:860px){.form3{grid-template-columns:1fr}.acct{flex-direction:column;align-items:flex-start}}
 @media (max-width:560px){.hright #hsign{padding:6px 10px}}
+
+/* assignments */
+.asghead .tools select{max-width:320px}.asghead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+.asgpick{border:2px dashed var(--line);border-radius:14px;padding:10px 14px;margin:8px 0 12px}.asgpick summary{cursor:pointer;color:var(--navy)}
+.simpick{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:6px;margin:10px 0}
+.simpick label{display:flex;gap:8px;align-items:flex-start;border:1.5px solid var(--line);border-radius:10px;padding:7px 10px;cursor:pointer;font-size:14px;background:#fff}
+.simpick label.on{background:#ebfbee;border-color:#8ce99a;color:#2b8a3e}.simpick small{color:#2b8a3e;font-weight:700}
+.pp{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;background:#f1f3f5;color:#868e96;margin:1px 2px;white-space:nowrap}
+.pp.ok{background:#d3f9d8;color:#2b8a3e}.pp.half{background:#fff3bf;color:#a76a00}
+.pbar{display:inline-block;width:70px;height:8px;border-radius:99px;background:#e9ecef;overflow:hidden;vertical-align:middle;margin-right:6px}.pbar i{display:block;height:100%;background:#4dabf7}.pbar.full i{background:#40c057}
+table.data tr.sel td{background:#edf2ff}
+.asgpanel{border:2px solid var(--navy);margin-bottom:16px}
+.asgcourse{margin-top:10px}.asgcourse h4{margin:6px 0;color:var(--c)}
+.asgitem{display:grid;grid-template-columns:1fr auto 130px;gap:6px 12px;align-items:center;border:1.5px solid var(--line);border-left:6px solid var(--c);border-radius:12px;padding:9px 12px;margin:6px 0;text-decoration:none;color:inherit;background:#fff}
+.asgitem:hover{box-shadow:0 4px 14px rgba(0,0,0,.08)}.asgitem .t{font-weight:700}.asgitem .t small{display:block;font-weight:400;color:#868e96;font-size:12px}
+.asgitem.done{opacity:.8}
+@media(max-width:700px){.asgitem{grid-template-columns:1fr}.asgitem .parts{order:3}}
 </style></head>
 <body>
 <header class="topbar"><div class="in">
@@ -457,7 +474,8 @@ var MKCore = (function () {
     students: ["username", "name", "nick", "grade", "pwHash", "pwSalt", "avatar", "bg", "owned", "spent", "createdBy", "created", "lastActive", "hidden"],
     enroll: ["classId", "username", "added"],
     progress: ["username", "course", "lab", "mission", "pRight", "pTried", "check", "checkTotal", "reflect", "xp", "updated"],
-    events: ["username", "t", "course", "subject", "lab", "kind", "xp"]
+    events: ["username", "t", "course", "subject", "lab", "kind", "xp"],
+    assign: ["id", "classId", "course", "lab", "title", "added", "by"]
   };
   var COURSES = {
     "physics6-labs.html": ["Physics 6", 6, "physics"], "physics7-labs.html": ["Physics 7", 7, "physics"], "physics8-labs.html": ["Physics 8", 8, "physics"],
@@ -584,7 +602,7 @@ var MKCore = (function () {
   A.deleteClass = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var c = teacherClasses(DB, me).filter(function (x) { return x.id === p.classId; })[0]; if (!c) return err("Class not found.");
-    DB.remove("classes", function (x) { return x.id === c.id; }); DB.remove("enroll", function (e) { return e.classId === c.id; }); return ok();
+    DB.remove("classes", function (x) { return x.id === c.id; }); DB.remove("enroll", function (e) { return e.classId === c.id; }); DB.remove("assign", function (a) { return a.classId === c.id; }); return ok();
   };
   A.listClasses = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
@@ -668,6 +686,49 @@ var MKCore = (function () {
           labs: pr.filter(function (r) { return r.username === u; }).map(function (r) { return { lab: r.lab, mission: String(r.mission) === "1", pRight: +r.pRight || 0, pTried: +r.pTried || 0, check: r.check === "" ? null : +r.check, checkTotal: +r.checkTotal || 0, reflect: r.reflect || "", xp: +r.xp || 0, updated: +r.updated || 0 }; }) }; }) });
   };
 
+  /* ----- assignments: a teacher assigns simulations to a class; students see them; teachers track them */
+  // Explore = mission solved · Practice = 3 right · Check = check taken · Reflection = written. 25% each, 100% only when all four are done.
+  function labParts(r) {
+    r = r || {};
+    var P = { explore: String(r.mission) === "1" || r.mission === true, pRight: +r.pRight || 0, check: r.check === "" || r.check == null ? null : +r.check, checkTotal: +r.checkTotal || 0, reflect: !!String(r.reflect || "").trim() };
+    P.practice = P.pRight >= 3; P.checked = P.check != null;
+    P.pct = (P.explore ? 25 : 0) + (P.practice ? 25 : Math.min(2, P.pRight) * 8) + (P.checked ? 25 : 0) + (P.reflect ? 25 : 0);
+    P.done = P.explore && P.practice && P.checked && P.reflect; if (!P.done) P.pct = Math.min(P.pct, 99);
+    P.started = P.explore || P.pRight > 0 || +r.pTried > 0 || P.checked || P.reflect;
+    P.updated = +r.updated || 0; P.reflectText = String(r.reflect || "").slice(0, 400);
+    return P;
+  }
+  function myClass(DB, me, id) { return teacherClasses(DB, me).filter(function (x) { return x.id === id; })[0]; }
+  A.assignLabs = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    var have = DB.all("assign").filter(function (a) { return a.classId === c.id; }), added = [];
+    if (have.length + (p.items || []).length > 300) return err("A class can have up to 300 assigned simulations.");
+    (p.items || []).slice(0, 60).forEach(function (it) {
+      var course = String(it.course || c.course), lab = clean(it.lab, 80); if (!COURSES[course] || !lab) return;
+      if (have.concat(added).some(function (a) { return a.course === course && a.lab === lab; })) return;
+      var row = { id: code(10, LOW + "0123456789"), classId: c.id, course: course, lab: lab, title: clean(it.title, 120) || lab, added: now() + added.length, by: me.email };
+      DB.insert("assign", row); added.push(row);
+    });
+    return ok({ added: added.length });
+  };
+  A.unassignLab = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    DB.remove("assign", function (a) { return a.classId === c.id && a.id === p.id; }); return ok();
+  };
+  A.assignmentReport = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    var as = DB.all("assign").filter(function (a) { return a.classId === c.id; }).sort(function (a, b) { return +a.added - +b.added; });
+    var users = DB.all("enroll").filter(function (e) { return e.classId === c.id; }).map(function (e) { return e.username; });
+    var st = {}; DB.all("students").forEach(function (s) { st[s.username] = s; });
+    var pr = {}; DB.all("progress").forEach(function (r) { if (users.indexOf(r.username) >= 0) pr[r.username + "|" + r.course + "|" + r.lab] = r; });
+    return ok({ assignments: as.map(function (a) { return { id: a.id, course: a.course, courseName: (COURSES[a.course] || [""])[0], lab: a.lab, title: a.title, added: +a.added }; }),
+      students: users.map(function (u) { var s = st[u] || {}; return { username: u, name: s.name || "", nick: s.nick || "" }; }),
+      rows: as.map(function (a) { return users.map(function (u) { return labParts(pr[u + "|" + a.course + "|" + a.lab]); }); }) });
+  };
+
   /* ----- student data */
   A.myData = function (DB, p, me) {
     if (!me || me.kind !== "student") return err("Please sign in again.");
@@ -677,7 +738,22 @@ var MKCore = (function () {
       events: DB.all("events").filter(function (e) { return e.username === me.username; }).map(function (e) { return { t: +e.t, f: e.course, s: e.subject, l: e.lab, k: e.kind, xp: +e.xp }; }),
       progress: DB.all("progress").filter(function (r) { return r.username === me.username && (!p.course || r.course === p.course); }),
       classes: en.map(function (e) { var c = cl.filter(function (x) { return x.id === e.classId; })[0]; if (!c) return null; var t = te.filter(function (x) { return x.email === c.teacher; })[0];
-        return { name: c.name, course: (COURSES[c.course] || [""])[0], teacher: t ? t.name || t.email : (c.teacher === DB.prop("ADMIN_EMAIL") ? "Miss K" : c.teacher) }; }).filter(Boolean) });
+        return { name: c.name, course: (COURSES[c.course] || [""])[0], teacher: t ? t.name || t.email : (c.teacher === DB.prop("ADMIN_EMAIL") ? "Miss K" : c.teacher) }; }).filter(Boolean),
+      assignments: myAssignments(DB, me.username) });
+  };
+  function myAssignments(DB, u) {
+    var ids = DB.all("enroll").filter(function (e) { return e.username === u; }).map(function (e) { return e.classId; });
+    var cl = {}; DB.all("classes").forEach(function (c) { cl[c.id] = c; });
+    var pr = {}; DB.all("progress").forEach(function (r) { if (r.username === u) pr[r.course + "|" + r.lab] = r; });
+    var seen = {};
+    return DB.all("assign").filter(function (a) { return ids.indexOf(a.classId) >= 0 && cl[a.classId]; }).sort(function (a, b) { return +b.added - +a.added; }).filter(function (a) {
+      var k = a.course + "|" + a.lab; if (seen[k]) return false; seen[k] = 1; return true; }).map(function (a) {
+      var C = COURSES[a.course] || ["", 0, ""];
+      return { id: a.id, course: a.course, courseName: C[0], subject: C[2], lab: a.lab, title: a.title, className: cl[a.classId].name, added: +a.added, parts: labParts(pr[a.course + "|" + a.lab]) }; });
+  }
+  A.myAssignments = function (DB, p, me) {
+    if (!me || me.kind !== "student") return err("Please sign in again.");
+    return ok({ assignments: myAssignments(DB, me.username) });
   };
   A.sync = function (DB, p, me) {
     if (!me || me.kind !== "student") return err("Please sign in again.");
@@ -887,7 +963,7 @@ function renderProfile() {
   const U = MKAcct.user(), demoOn = MXP.demo();
   const acct = demoOn ? "" : U ? `<div class="acct on"><div><b>✅ Signed in as ${esc(p.nick || U.nick)}</b> <span class="note">@${esc(U.username)}</span><div class="note">Your XP and lab progress are saved to your account, so they follow you to any computer — and your teachers can see your progress.</div></div><button class="btn sm ghost" id="pout">Sign out</button></div>`
     : `<div class="acct"><div><b>🔐 Sign in to save your XP</b><div class="note">Use the username and password your teacher created for you (students cannot create their own accounts, and no email is needed). Your XP, labs and store items will follow you to any computer, you join your classes, and you appear on the leaderboard. XP you already earned on this computer is added to your account.</div></div><button class="btn gold" id="pin">Sign in</button></div>`;
-  $("profileView").innerHTML = acct + `
+  $("profileView").innerHTML = acct + (U ? `<div class="panel asgpanel"><h3>📌 My assignments</h3><div id="passign" class="note">Loading…</div></div>` : "") + `
   <div class="pcard"><div class="pbanner" style="background:${MXP.bgCss(p.bg)}"></div>
     <div class="pmain"><div class="pav" style="background:${MXP.bgCss(p.bg)}">${MXP.avatarSVG(p.avatar, 140)}</div>
       <div class="pname"><h1>${esc(p.nick || "New scientist")}</h1><div class="lvl">Level ${L.n} · ${L.title}${p.grade ? ` · Grade ${esc(p.grade)}` : ""}</div>
@@ -920,7 +996,7 @@ function renderProfile() {
   if ($("pout")) $("pout").onclick = async () => { await MKAcct.logout(); renderProfile(); chip(); };
   if (U) {
     if (!renderProfile.pulled) { renderProfile.pulled = true; MKAcct.pull("", TITLES).then(r => { if (r && location.hash.startsWith("#profile")) { renderProfile(); chip(); } }); }
-    MKAPI.call("myData", { course: "__none__" }).then(r => { const el = $("pclasses"); if (!el || !r.ok) return; el.innerHTML = r.classes.length ? r.classes.map(c => `<div class="clsrow"><b>${esc(c.name)}</b> · ${esc(c.course)} <span class="note">· ${esc(c.teacher)}</span></div>`).join("") : "You are not in a class yet. Ask your teacher for a class code."; });
+    MKAPI.call("myData", { course: "__none__" }).then(r => { if (r.ok) renderMyAssignments(r.assignments); const el = $("pclasses"); if (!el || !r.ok) return; el.innerHTML = r.classes.length ? r.classes.map(c => `<div class="clsrow"><b>${esc(c.name)}</b> · ${esc(c.course)} <span class="note">· ${esc(c.teacher)}</span></div>`).join("") : "You are not in a class yet. Ask your teacher for a class code."; });
     $("pjoin").onclick = async () => { const r = await MKAPI.call("joinClass", { code: $("pcode").value }); $("pjmsg").textContent = r.ok ? `Joined ${r.cls.name} (${r.cls.course}) ✓` : r.error; if (r.ok) renderProfile(); };
     $("ppw").onclick = async () => { const r = await MKAPI.call("changePassword", { old: $("pold").value, new: $("pnew").value }); $("ppmsg").textContent = r.ok ? "Password changed ✓" : r.error; };
   }
@@ -1084,6 +1160,7 @@ async function renderClass(body, id) {
     <div class="tools"><button class="btn" id="addnew">＋ Add new students</button><button class="btn ghost" id="addold">＋ Add existing student</button><button class="btn ghost" id="csv">⬇ Spreadsheet</button><button class="btn ghost" id="delc">Delete class</button></div></div>
   <div id="addbox"></div>
   <div class="tiles"><div><b>${S.length}</b><span>students</span></div><div><b>${week}</b><span>active this week</span></div><div><b>${S.reduce((a, s) => a + s.done, 0)}</b><span>labs completed</span></div><div><b>${fmt(S.length ? Math.round(S.reduce((a, s) => a + s.xpCourse, 0) / S.length) : 0)}</b><span>average XP in ${esc(C.courseName)}</span></div><div><b>${N}</b><span>labs in the course</span></div></div>
+  <div class="tbox asg" id="asgbox"><h3 style="color:var(--navy)">📌 Assigned simulations</h3><p class="note">Loading…</p></div>
   <div class="tbox"><h3 style="color:var(--navy)">Students</h3>
     ${S.length ? `<div class="tscroll"><table class="data"><tr><th></th><th>Student</th><th>Username</th><th>XP in course</th><th>XP this month</th><th>Labs complete</th><th>Missions</th><th>Avg check</th><th>Last active</th><th></th></tr>
       ${S.map(s => `<tr><td>${avBox({ avatar: s.avatar || "rookie", bg: s.bg || "teal" }, 30, "tav")}</td><td><b>${esc(s.name || "")}</b><br><small class="note">${esc(s.nick || "")}</small></td><td><code>${esc(s.username)}</code></td><td><b>${fmt(s.xpCourse)}</b></td><td>${fmt(s.xpMonth)}</td>
@@ -1094,6 +1171,7 @@ async function renderClass(body, id) {
     <div class="tscroll"><table class="data"><tr><th>Unit</th><th>Simulation</th><th>Completed</th><th>Started</th><th>Avg check</th></tr>
     ${perLab.map(({ l, d, st, avg }) => `<tr><td>${l[1]}</td><td><a href="${C.course}#lab=${encodeURIComponent(l[0])}&tab=explore" target="_blank" rel="noopener">${esc(l[2])}</a></td><td><div class="minibar"><i style="width:${S.length ? Math.round(d / S.length * 100) : 0}%"></i></div>${d} / ${S.length}</td><td>${st}</td><td>${avg == null ? "—" : avg + "%"}</td></tr>`).join("")}</table></div></div>`;
   $("back").onclick = () => { CUR_CLASS = null; renderTeacher(); };
+  renderAssign(id, C);
   $("delc").onclick = () => confirmBox(`Delete ${esc(C.name)}?`, "Students keep their accounts and XP — they are only removed from this class.", "Delete class", async () => { await MKAPI.call("deleteClass", { classId: id }); CUR_CLASS = null; renderTeacher(); });
   $("csv").onclick = () => { const head = ["Name", "Nickname", "Username", "Grade", `XP in ${C.courseName}`, "XP this month", "Labs complete", "Labs started", "Missions", "Average check %", "Last active"].concat(labs.map(l => `U${l[1]} ${l[2]}`));
     const rows = S.map(s => [s.name, s.nick, s.username, s.grade, s.xpCourse, s.xpMonth, s.done, s.started, s.missions, s.avg == null ? "" : s.avg, s.lastActive ? new Date(s.lastActive).toLocaleString() : ""].concat(labs.map(l => { const L = s.by[l[0]]; return !L ? "" : labStatus(L) === "done" ? `done ${L.check}/${L.checkTotal}` : "started"; })));
@@ -1111,6 +1189,66 @@ async function renderClass(body, id) {
   body.querySelectorAll("[data-view]").forEach(b => b.onclick = () => studentDetail(S.find(s => s.username === b.dataset.view), C, labs, units));
   body.querySelectorAll("[data-reset]").forEach(b => b.onclick = () => confirmBox(`Reset the password for ${esc(b.dataset.reset)}?`, "The student will be signed out everywhere and needs the new password.", "Reset password", async () => { const x = await MKAPI.call("resetPassword", { username: b.dataset.reset }); if (x.ok) { const s = S.find(z => z.username === x.username); showCards([{ username: x.username, name: s ? s.name : "", nick: s ? s.nick : "", password: x.password }], C); } }));
   body.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => confirmBox(`Remove ${esc(b.dataset.rm)} from ${esc(C.name)}?`, "The student keeps their account, XP and other classes.", "Remove", async () => { await MKAPI.call("removeFromClass", { classId: id, username: b.dataset.rm }); renderClass(body, id); }));
+}
+/* ---------------- assignments (teacher) ---------------- */
+let ASG_FILTER = "", ASG_PICK = null;
+const PART = (ok, txt) => `<span class="pp ${ok === true ? "ok" : ok === "half" ? "half" : ""}">${txt}</span>`;
+function pctBar(p) { return `<div class="pbar ${p >= 100 ? "full" : ""}"><i style="width:${p}%"></i></div><b>${p}%</b>`; }
+async function renderAssign(id, C) {
+  const box = $("asgbox"); if (!box) return;
+  const r = await MKAPI.call("assignmentReport", { classId: id });
+  if (!r.ok) { box.innerHTML = `<h3 style="color:var(--navy)">📌 Assigned simulations</h3><p class="note">${esc(r.error)}</p>`; return; }
+  const A = r.assignments, S = r.students, N = S.length;
+  ASG_PICK = ASG_PICK && ASG_PICK.cls === id ? ASG_PICK : { cls: id, course: C.course, unit: "" };
+  const pc = courseCat(ASG_PICK.course) || courseCat(C.course);
+  if (!ASG_PICK.unit || !pc.units.some(u => String(u[0]) === String(ASG_PICK.unit))) ASG_PICK.unit = String(pc.units[0][0]);
+  const assigned = new Set(A.map(a => a.course + "|" + a.lab));
+  const sims = pc.labs.filter(l => String(l[1]) === ASG_PICK.unit);
+  const summary = A.map((a, i) => { const col = r.rows[i], done = col.filter(p => p.done).length, avg = N ? Math.round(col.reduce((t, p) => t + p.pct, 0) / N) : 0, started = col.filter(p => p.started).length;
+    return { a, i, done, avg, started }; });
+  if (ASG_FILTER && !A.some(a => a.id === ASG_FILTER)) ASG_FILTER = "";
+  const shown = summary.filter(x => !ASG_FILTER || x.a.id === ASG_FILTER);
+  box.innerHTML = `<div class="asghead"><h3 style="color:var(--navy);margin:0">📌 Assigned simulations</h3><span class="note">Students see these on their <b>My profile</b> dashboard. Progress: Explore (mission) · Practice (3 right) · Check · Reflection — 25% each; 100% only when all four are done.</span></div>
+    <details class="asgpick" ${A.length ? "" : "open"}><summary><b>＋ Assign simulations</b></summary>
+      <div class="form3"><label class="fl">Course<select id="apc">${courseOptions()}</select></label><label class="fl">Unit<select id="apu">${pc.units.map(u => `<option value="${u[0]}" ${String(u[0]) === ASG_PICK.unit ? "selected" : ""}>Unit ${u[0]} · ${esc(u[1])}</option>`).join("")}</select></label><span></span></div>
+      <div class="simpick">${sims.map(l => { const k = pc.file + "|" + l[0], on = assigned.has(k); return `<label class="${on ? "on" : ""}"><input type="checkbox" value="${esc(l[0])}" data-t="${esc(l[2])}" ${on ? "checked disabled" : ""}> ${esc(l[2])}${on ? ` <small>assigned</small>` : ""}</label>`; }).join("")}</div>
+      <div class="tools"><button class="btn" id="apgo">Assign selected</button><span class="note" id="apmsg"></span></div></details>
+    ${A.length ? `<div class="tscroll"><table class="data"><tr><th>Simulation</th><th>Course</th><th>Completed</th><th>Started</th><th>Class average</th><th></th></tr>
+      ${summary.map(x => `<tr class="${ASG_FILTER === x.a.id ? "sel" : ""}"><td><a href="${x.a.course}#lab=${encodeURIComponent(x.a.lab)}&tab=explore" target="_blank" rel="noopener"><b>${esc(x.a.title)}</b></a></td><td>${esc(x.a.courseName)}</td><td>${x.done} / ${N}</td><td>${x.started}</td><td style="white-space:nowrap">${pctBar(x.avg)}</td>
+        <td style="white-space:nowrap"><button class="btn sm ghost" data-af="${x.a.id}">${ASG_FILTER === x.a.id ? "Show all" : "Only this"}</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove from this class">✕</button></td></tr>`).join("")}</table></div>
+    <div class="asghead" style="margin-top:14px"><h3 style="color:var(--navy);margin:0">Progress by student</h3>
+      <div class="tools" style="margin:0"><select id="aflt"><option value="">All assigned simulations</option>${A.map(a => `<option value="${a.id}" ${ASG_FILTER === a.id ? "selected" : ""}>${esc(a.title)}</option>`).join("")}</select><button class="btn sm ghost" id="acsv">⬇ Spreadsheet</button><button class="btn sm ghost" id="aref">↻ Refresh</button></div></div>
+    ${N ? `<div class="tscroll" style="max-height:560px"><table class="data asgtab"><thead><tr><th>Simulation</th><th>Student</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th></tr></thead><tbody>
+      ${shown.map(x => S.map((s, j) => { const p = r.rows[x.i][j]; return `<tr><td>${esc(x.a.title)}</td><td><b>${esc(s.name || s.username)}</b> <small class="note">${esc(s.nick)}</small></td>
+        <td>${PART(p.explore, p.explore ? "✓ Done" : "—")}</td><td>${PART(p.practice ? true : p.pRight ? "half" : false, `${Math.min(3, p.pRight)}/3`)}</td>
+        <td>${PART(p.checked, p.checked ? `${p.check}/${p.checkTotal}` : "—")}</td><td title="${esc(p.reflectText)}">${PART(p.reflect, p.reflect ? "✓ Written" : "—")}</td><td style="white-space:nowrap">${pctBar(p.pct)}</td></tr>`; }).join("")).join("")}</tbody></table></div>`
+      : `<p class="note">Add students to this class to track their progress.</p>`}`
+    : `<p class="note">Nothing assigned yet. Pick a unit above, tick the simulations and click <b>Assign selected</b>.</p>`}`;
+  $("apc").value = pc.file;
+  $("apc").onchange = () => { ASG_PICK.course = $("apc").value; ASG_PICK.unit = ""; renderAssign(id, C); };
+  $("apu").onchange = () => { ASG_PICK.unit = $("apu").value; renderAssign(id, C).then(() => { const d = box.querySelector(".asgpick"); if (d) d.open = true; }); };
+  $("apgo").onclick = async () => { const items = [...box.querySelectorAll(".simpick input:checked:not(:disabled)")].map(i => ({ course: pc.file, lab: i.value, title: i.dataset.t }));
+    if (!items.length) { $("apmsg").textContent = "Tick at least one simulation."; return; } $("apmsg").textContent = "Assigning…";
+    const x = await MKAPI.call("assignLabs", { classId: id, items }); if (!x.ok) { $("apmsg").textContent = x.error; return; } renderAssign(id, C); };
+  box.querySelectorAll("[data-un]").forEach(b => b.onclick = () => confirmBox("Remove this assignment?", "Students keep all their progress — the simulation is only removed from the class list.", "Remove", async () => { await MKAPI.call("unassignLab", { classId: id, id: b.dataset.un }); renderAssign(id, C); }));
+  box.querySelectorAll("[data-af]").forEach(b => b.onclick = () => { ASG_FILTER = ASG_FILTER === b.dataset.af ? "" : b.dataset.af; renderAssign(id, C); });
+  if ($("aflt")) $("aflt").onchange = () => { ASG_FILTER = $("aflt").value; renderAssign(id, C); };
+  if ($("aref")) $("aref").onclick = () => renderAssign(id, C);
+  if ($("acsv")) $("acsv").onclick = () => { const head = ["Simulation", "Course", "Student", "Nickname", "Username", "Explore", "Practice (right of 3)", "Check", "Reflection", "Reflection text", "Progress %"];
+    const rows = []; shown.forEach(x => S.forEach((s, j) => { const p = r.rows[x.i][j]; rows.push([x.a.title, x.a.courseName, s.name, s.nick, s.username, p.explore ? "done" : "", Math.min(3, p.pRight), p.checked ? `${p.check}/${p.checkTotal}` : "", p.reflect ? "done" : "", p.reflectText, p.pct]); }));
+    download(`${C.name.replace(/[^a-z0-9]+/gi, "-")}-assignments.csv`, [head].concat(rows).map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv"); };
+}
+/* ---------------- assignments (student dashboard) ---------------- */
+function renderMyAssignments(list) {
+  const el = $("passign"); if (!el) return;
+  if (!list || !list.length) { el.innerHTML = `<p class="note">No simulations assigned right now. When your teacher assigns one, it appears here.</p>`; return; }
+  const todo = list.filter(a => !a.parts.done).length;
+  const groups = {}; list.forEach(a => (groups[a.courseName] = groups[a.courseName] || []).push(a));
+  el.innerHTML = `<p class="note">${todo ? `<b>${todo}</b> to finish` : "All done — great work! 🎉"} · finish all four parts (Explore, Practice, Check, Reflection) to reach 100%.</p>` +
+    Object.entries(groups).map(([cn, arr]) => { const col = (SUBJ[arr[0].subject] || {}).color || "#3E4981";
+      return `<div class="asgcourse" style="--c:${col}"><h4>${esc(cn)}</h4>${arr.sort((a, b) => a.parts.done - b.parts.done).map(a => { const p = a.parts;
+        return `<a class="asgitem ${p.done ? "done" : ""}" href="${a.course}#lab=${encodeURIComponent(a.lab)}&tab=explore"><span class="t">${p.done ? "✅" : "▶"} ${esc(a.title)}<small>${esc(a.className)}</small></span>
+          <span class="parts">${PART(p.explore, "Explore")}${PART(p.practice ? true : p.pRight ? "half" : false, "Practice")}${PART(p.checked, "Check")}${PART(p.reflect, "Reflection")}</span><span class="pc">${pctBar(p.pct)}</span></a>`; }).join("")}</div>`; }).join("");
 }
 function studentDetail(s, C, labs, units) {
   const m = $("modal"); m.hidden = false; $("mbox").classList.add("wide");

@@ -13099,6 +13099,7 @@ boot();
 
 
 
+
 <!--XP--><script src="missk-config.js"></script><script>/* =====================================================================
    Miss K STEM Labs · BACKEND CORE
    The same file runs in two places:
@@ -13115,7 +13116,8 @@ var MKCore = (function () {
     students: ["username", "name", "nick", "grade", "pwHash", "pwSalt", "avatar", "bg", "owned", "spent", "createdBy", "created", "lastActive", "hidden"],
     enroll: ["classId", "username", "added"],
     progress: ["username", "course", "lab", "mission", "pRight", "pTried", "check", "checkTotal", "reflect", "xp", "updated"],
-    events: ["username", "t", "course", "subject", "lab", "kind", "xp"]
+    events: ["username", "t", "course", "subject", "lab", "kind", "xp"],
+    assign: ["id", "classId", "course", "lab", "title", "added", "by"]
   };
   var COURSES = {
     "physics6-labs.html": ["Physics 6", 6, "physics"], "physics7-labs.html": ["Physics 7", 7, "physics"], "physics8-labs.html": ["Physics 8", 8, "physics"],
@@ -13242,7 +13244,7 @@ var MKCore = (function () {
   A.deleteClass = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var c = teacherClasses(DB, me).filter(function (x) { return x.id === p.classId; })[0]; if (!c) return err("Class not found.");
-    DB.remove("classes", function (x) { return x.id === c.id; }); DB.remove("enroll", function (e) { return e.classId === c.id; }); return ok();
+    DB.remove("classes", function (x) { return x.id === c.id; }); DB.remove("enroll", function (e) { return e.classId === c.id; }); DB.remove("assign", function (a) { return a.classId === c.id; }); return ok();
   };
   A.listClasses = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
@@ -13326,6 +13328,49 @@ var MKCore = (function () {
           labs: pr.filter(function (r) { return r.username === u; }).map(function (r) { return { lab: r.lab, mission: String(r.mission) === "1", pRight: +r.pRight || 0, pTried: +r.pTried || 0, check: r.check === "" ? null : +r.check, checkTotal: +r.checkTotal || 0, reflect: r.reflect || "", xp: +r.xp || 0, updated: +r.updated || 0 }; }) }; }) });
   };
 
+  /* ----- assignments: a teacher assigns simulations to a class; students see them; teachers track them */
+  // Explore = mission solved · Practice = 3 right · Check = check taken · Reflection = written. 25% each, 100% only when all four are done.
+  function labParts(r) {
+    r = r || {};
+    var P = { explore: String(r.mission) === "1" || r.mission === true, pRight: +r.pRight || 0, check: r.check === "" || r.check == null ? null : +r.check, checkTotal: +r.checkTotal || 0, reflect: !!String(r.reflect || "").trim() };
+    P.practice = P.pRight >= 3; P.checked = P.check != null;
+    P.pct = (P.explore ? 25 : 0) + (P.practice ? 25 : Math.min(2, P.pRight) * 8) + (P.checked ? 25 : 0) + (P.reflect ? 25 : 0);
+    P.done = P.explore && P.practice && P.checked && P.reflect; if (!P.done) P.pct = Math.min(P.pct, 99);
+    P.started = P.explore || P.pRight > 0 || +r.pTried > 0 || P.checked || P.reflect;
+    P.updated = +r.updated || 0; P.reflectText = String(r.reflect || "").slice(0, 400);
+    return P;
+  }
+  function myClass(DB, me, id) { return teacherClasses(DB, me).filter(function (x) { return x.id === id; })[0]; }
+  A.assignLabs = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    var have = DB.all("assign").filter(function (a) { return a.classId === c.id; }), added = [];
+    if (have.length + (p.items || []).length > 300) return err("A class can have up to 300 assigned simulations.");
+    (p.items || []).slice(0, 60).forEach(function (it) {
+      var course = String(it.course || c.course), lab = clean(it.lab, 80); if (!COURSES[course] || !lab) return;
+      if (have.concat(added).some(function (a) { return a.course === course && a.lab === lab; })) return;
+      var row = { id: code(10, LOW + "0123456789"), classId: c.id, course: course, lab: lab, title: clean(it.title, 120) || lab, added: now() + added.length, by: me.email };
+      DB.insert("assign", row); added.push(row);
+    });
+    return ok({ added: added.length });
+  };
+  A.unassignLab = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    DB.remove("assign", function (a) { return a.classId === c.id && a.id === p.id; }); return ok();
+  };
+  A.assignmentReport = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    var as = DB.all("assign").filter(function (a) { return a.classId === c.id; }).sort(function (a, b) { return +a.added - +b.added; });
+    var users = DB.all("enroll").filter(function (e) { return e.classId === c.id; }).map(function (e) { return e.username; });
+    var st = {}; DB.all("students").forEach(function (s) { st[s.username] = s; });
+    var pr = {}; DB.all("progress").forEach(function (r) { if (users.indexOf(r.username) >= 0) pr[r.username + "|" + r.course + "|" + r.lab] = r; });
+    return ok({ assignments: as.map(function (a) { return { id: a.id, course: a.course, courseName: (COURSES[a.course] || [""])[0], lab: a.lab, title: a.title, added: +a.added }; }),
+      students: users.map(function (u) { var s = st[u] || {}; return { username: u, name: s.name || "", nick: s.nick || "" }; }),
+      rows: as.map(function (a) { return users.map(function (u) { return labParts(pr[u + "|" + a.course + "|" + a.lab]); }); }) });
+  };
+
   /* ----- student data */
   A.myData = function (DB, p, me) {
     if (!me || me.kind !== "student") return err("Please sign in again.");
@@ -13335,7 +13380,22 @@ var MKCore = (function () {
       events: DB.all("events").filter(function (e) { return e.username === me.username; }).map(function (e) { return { t: +e.t, f: e.course, s: e.subject, l: e.lab, k: e.kind, xp: +e.xp }; }),
       progress: DB.all("progress").filter(function (r) { return r.username === me.username && (!p.course || r.course === p.course); }),
       classes: en.map(function (e) { var c = cl.filter(function (x) { return x.id === e.classId; })[0]; if (!c) return null; var t = te.filter(function (x) { return x.email === c.teacher; })[0];
-        return { name: c.name, course: (COURSES[c.course] || [""])[0], teacher: t ? t.name || t.email : (c.teacher === DB.prop("ADMIN_EMAIL") ? "Miss K" : c.teacher) }; }).filter(Boolean) });
+        return { name: c.name, course: (COURSES[c.course] || [""])[0], teacher: t ? t.name || t.email : (c.teacher === DB.prop("ADMIN_EMAIL") ? "Miss K" : c.teacher) }; }).filter(Boolean),
+      assignments: myAssignments(DB, me.username) });
+  };
+  function myAssignments(DB, u) {
+    var ids = DB.all("enroll").filter(function (e) { return e.username === u; }).map(function (e) { return e.classId; });
+    var cl = {}; DB.all("classes").forEach(function (c) { cl[c.id] = c; });
+    var pr = {}; DB.all("progress").forEach(function (r) { if (r.username === u) pr[r.course + "|" + r.lab] = r; });
+    var seen = {};
+    return DB.all("assign").filter(function (a) { return ids.indexOf(a.classId) >= 0 && cl[a.classId]; }).sort(function (a, b) { return +b.added - +a.added; }).filter(function (a) {
+      var k = a.course + "|" + a.lab; if (seen[k]) return false; seen[k] = 1; return true; }).map(function (a) {
+      var C = COURSES[a.course] || ["", 0, ""];
+      return { id: a.id, course: a.course, courseName: C[0], subject: C[2], lab: a.lab, title: a.title, className: cl[a.classId].name, added: +a.added, parts: labParts(pr[a.course + "|" + a.lab]) }; });
+  }
+  A.myAssignments = function (DB, p, me) {
+    if (!me || me.kind !== "student") return err("Please sign in again.");
+    return ok({ assignments: myAssignments(DB, me.username) });
   };
   A.sync = function (DB, p, me) {
     if (!me || me.kind !== "student") return err("Please sign in again.");
