@@ -238,6 +238,13 @@ table.data tr.sel td{background:#edf2ff}
 .cochip .x{border:0;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#868e96;padding:0 2px}
 .cochip .x:hover{color:#e03131}
 .classcard .cotag{display:block;margin-top:4px;font-size:12px;color:var(--c);font-weight:700}
+/* due dates */
+.pp.late{background:#fff4e6;color:#d9480f;border-color:#ffc078}
+.pp.miss{background:#fff5f5;color:#e03131;border-color:#ffa8a8}
+.asgclosed{margin-top:14px;border-top:1px dashed var(--line);padding-top:10px}
+.asgclosed summary{cursor:pointer}
+.asgitem.overdue{border-color:#ffa8a8;background:#fff8f8}
+.okc{color:#2b8a3e}.latec{color:#d9480f}
 </style></head>
 <body>
 <header class="topbar"><div class="in">
@@ -565,9 +572,9 @@ var MKCore = (function () {
     classes: ["id", "teacher", "name", "course", "grade", "code", "created"],
     students: ["username", "name", "nick", "grade", "pwHash", "pwSalt", "avatar", "bg", "owned", "spent", "createdBy", "created", "lastActive", "hidden"],
     enroll: ["classId", "username", "added"],
-    progress: ["username", "course", "lab", "mission", "pRight", "pTried", "check", "checkTotal", "reflect", "xp", "updated"],
+    progress: ["username", "course", "lab", "mission", "pRight", "pTried", "check", "checkTotal", "reflect", "xp", "updated", "doneAt"],
     events: ["username", "t", "course", "subject", "lab", "kind", "xp"],
-    assign: ["id", "classId", "course", "lab", "title", "added", "by"],
+    assign: ["id", "classId", "course", "lab", "title", "added", "by", "due", "late"],
     coteach: ["classId", "email", "added", "by"]
   };
   var COURSES = {
@@ -822,19 +829,32 @@ var MKCore = (function () {
     P.pct = (P.explore ? 25 : 0) + (P.practice ? 25 : Math.min(2, P.pRight) * 8) + (P.checked ? 25 : 0) + (P.reflect ? 25 : 0);
     P.done = P.explore && P.practice && P.checked && P.reflect; if (!P.done) P.pct = Math.min(P.pct, 99);
     P.started = P.explore || P.pRight > 0 || +r.pTried > 0 || P.checked || P.reflect;
-    P.updated = +r.updated || 0; P.reflectText = String(r.reflect || "").slice(0, 400);
+    P.updated = +r.updated || 0; P.doneAt = +r.doneAt || 0; P.reflectText = String(r.reflect || "").slice(0, 400);
     return P;
   }
+  // dates are school days in Bangkok: due / late are "YYYY-MM-DD", the day ends at 23:59 Bangkok time
+  function dayEnd(d) { return /^\d{4}-\d{2}-\d{2}$/.test(String(d || "")) ? Date.parse(d + "T23:59:59+07:00") : 0; }
+  function cleanDay(d) { d = String(d || "").trim(); return /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + "T00:00:00Z")) ? d : ""; }
+  function closesAt(a) { return dayEnd(a.late) || dayEnd(a.due); }   // no late date → closes right after the due date
+  function isClosed(a, t) { var c = closesAt(a); return !!c && (t || now()) > c; }
+  function status(a, P, t) {   // on time · late · missing · open
+    var due = dayEnd(a.due); t = t || now();
+    if (P.done) return !due || !P.doneAt || P.doneAt <= due ? "ontime" : "late";
+    return due && t > due ? "missing" : "open";
+  }
+  function asgOut(a) { return { id: a.id, course: a.course, courseName: (COURSES[a.course] || [""])[0], lab: a.lab, title: a.title, added: +a.added, due: a.due || "", late: a.late || "", closesAt: closesAt(a), closed: isClosed(a) }; }
+  function datesOk(due, late) { if (late && !due) return "Set a due date before a late-submission date."; if (due && late && late < due) return "The late-submission date must be on or after the due date."; return ""; }
   function myClass(DB, me, id) { return teacherClasses(DB, me).filter(function (x) { return x.id === id; })[0]; }
   A.assignLabs = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
     var have = DB.all("assign").filter(function (a) { return a.classId === c.id; }), added = [];
     if (have.length + (p.items || []).length > 300) return err("A class can have up to 300 assigned simulations.");
+    var due = cleanDay(p.due), late = cleanDay(p.late), bad = datesOk(due, late); if (bad) return err(bad);
     (p.items || []).slice(0, 60).forEach(function (it) {
       var course = String(it.course || c.course), lab = clean(it.lab, 80); if (!COURSES[course] || !lab) return;
       if (have.concat(added).some(function (a) { return a.course === course && a.lab === lab; })) return;
-      var row = { id: code(10, LOW + "0123456789"), classId: c.id, course: course, lab: lab, title: clean(it.title, 120) || lab, added: now() + added.length, by: me.email };
+      var row = { id: code(10, LOW + "0123456789"), classId: c.id, course: course, lab: lab, title: clean(it.title, 120) || lab, added: now() + added.length, by: me.email, due: due, late: late };
       DB.insert("assign", row); added.push(row);
     });
     return ok({ added: added.length });
@@ -844,6 +864,13 @@ var MKCore = (function () {
     var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
     DB.remove("assign", function (a) { return a.classId === c.id && a.id === p.id; }); return ok();
   };
+  A.updateAssignment = function (DB, p, me) {   // change (or clear) the due / late dates — moving the late date forward reopens a closed assignment
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    var due = cleanDay(p.due), late = cleanDay(p.late), bad = datesOk(due, late); if (bad) return err(bad);
+    if (!DB.all("assign").some(function (a) { return a.classId === c.id && a.id === p.id; })) return err("Assignment not found.");
+    DB.update("assign", function (a) { return a.classId === c.id && a.id === p.id; }, { due: due, late: late }); return ok();
+  };
   A.assignmentReport = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
@@ -851,9 +878,10 @@ var MKCore = (function () {
     var users = DB.all("enroll").filter(function (e) { return e.classId === c.id; }).map(function (e) { return e.username; });
     var st = {}; DB.all("students").forEach(function (s) { st[s.username] = s; });
     var pr = {}; DB.all("progress").forEach(function (r) { if (users.indexOf(r.username) >= 0) pr[r.username + "|" + r.course + "|" + r.lab] = r; });
-    return ok({ assignments: as.map(function (a) { return { id: a.id, course: a.course, courseName: (COURSES[a.course] || [""])[0], lab: a.lab, title: a.title, added: +a.added }; }),
+    var t = now();
+    return ok({ now: t, assignments: as.map(asgOut),
       students: users.map(function (u) { var s = st[u] || {}; return { username: u, name: s.name || "", nick: s.nick || "" }; }),
-      rows: as.map(function (a) { return users.map(function (u) { return labParts(pr[u + "|" + a.course + "|" + a.lab]); }); }) });
+      rows: as.map(function (a) { return users.map(function (u) { var P = labParts(pr[u + "|" + a.course + "|" + a.lab]); P.status = status(a, P, t); return P; }); }) });
   };
 
   /* ----- student data */
@@ -873,10 +901,12 @@ var MKCore = (function () {
     var cl = {}; DB.all("classes").forEach(function (c) { cl[c.id] = c; });
     var pr = {}; DB.all("progress").forEach(function (r) { if (r.username === u) pr[r.course + "|" + r.lab] = r; });
     var seen = {};
-    return DB.all("assign").filter(function (a) { return ids.indexOf(a.classId) >= 0 && cl[a.classId]; }).sort(function (a, b) { return +b.added - +a.added; }).filter(function (a) {
+    var t = now();
+    return DB.all("assign").filter(function (a) { return ids.indexOf(a.classId) >= 0 && cl[a.classId] && !isClosed(a, t); }).sort(function (a, b) { return +b.added - +a.added; }).filter(function (a) {
       var k = a.course + "|" + a.lab; if (seen[k]) return false; seen[k] = 1; return true; }).map(function (a) {
       var C = COURSES[a.course] || ["", 0, ""];
-      return { id: a.id, course: a.course, courseName: C[0], subject: C[2], lab: a.lab, title: a.title, className: cl[a.classId].name, added: +a.added, parts: labParts(pr[a.course + "|" + a.lab]) }; });
+      var P = labParts(pr[a.course + "|" + a.lab]); P.status = status(a, P, t);
+      return { id: a.id, course: a.course, courseName: C[0], subject: C[2], lab: a.lab, title: a.title, className: cl[a.classId].name, added: +a.added, due: a.due || "", late: a.late || "", parts: P }; });
   }
   A.myAssignments = function (DB, p, me) {
     if (!me || me.kind !== "student") return err("Please sign in again.");
@@ -889,7 +919,10 @@ var MKCore = (function () {
     (p.labs || []).slice(0, 400).forEach(function (L) {
       var row = { username: u, course: course, lab: clean(L.lab, 80), mission: L.mission ? "1" : "", pRight: +L.pRight || 0, pTried: +L.pTried || 0, check: L.check == null ? "" : +L.check, checkTotal: +L.checkTotal || 0, reflect: clean(L.reflect, 1200), xp: Math.min(100, +L.xp || 0), updated: +L.updated || now() };
       var pred = function (r) { return r.username === u && r.course === course && r.lab === row.lab; };
-      if (DB.all("progress").some(pred)) DB.update("progress", pred, row); else DB.insert("progress", row);
+      var prev = DB.all("progress").filter(pred)[0];
+      // remember the moment the lab was FIRST completed (all four parts) — used for on-time / late
+      row.doneAt = prev && prev.doneAt ? prev.doneAt : prev && labParts(prev).done ? (+prev.updated || 1) : (labParts(row).done ? now() : "");
+      if (prev) DB.update("progress", pred, row); else DB.insert("progress", row);
     });
     var have = {}; DB.all("events").forEach(function (e) { if (e.username === u) have[e.course + "|" + e.lab + "|" + e.kind + "|" + e.xp + "|" + e.t] = 1; });
     var labXp = {}; DB.all("events").forEach(function (e) { if (e.username === u && e.course === course) labXp[e.lab] = (labXp[e.lab] || 0) + (+e.xp || 0); });
@@ -1345,49 +1378,75 @@ async function renderClass(body, id) {
 let ASG_FILTER = "", ASG_PICK = null;
 const PART = (ok, txt) => `<span class="pp ${ok === true ? "ok" : ok === "half" ? "half" : ""}">${txt}</span>`;
 function pctBar(p) { return `<div class="pbar ${p >= 100 ? "full" : ""}"><i style="width:${p}%"></i></div><b>${p}%</b>`; }
+// due dates: "YYYY-MM-DD" (school days in Bangkok)
+const fmtDay = d => d ? new Date(d + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }) : "";
+const STAT = { ontime: ["ok", "✓ On time"], late: ["late", "⏰ Late"], missing: ["miss", "Missing"], open: ["", "Open"] };
+const statPill = st => { const x = STAT[st] || STAT.open; return `<span class="pp ${x[0]}">${x[1]}</span>`; };
+const dueText = a => a.due ? `Due ${fmtDay(a.due)}${a.late && a.late !== a.due ? ` · late until ${fmtDay(a.late)}` : ""}` : "No due date";
+function editDates(id, a, C) {
+  const m = $("modal"); m.hidden = false;
+  $("mbox").innerHTML = `<h3>📅 ${esc(a.title)}</h3><p class="note">Students see the due date. After the late-submission date the assignment closes: it leaves the students' lists and this table. Leave “late until” empty to close right after the due date. Move the dates later to reopen a closed assignment.</p>
+    <div class="form3" style="text-align:left"><label class="fl">Due date<input type="date" id="edue" value="${esc(a.due)}"></label><label class="fl">Late submissions until<input type="date" id="elate" value="${esc(a.late)}"></label><span></span></div>
+    <p class="note" id="emsg"></p><div class="btns" style="justify-content:center"><button class="btn ghost" id="eclear">No due date</button><button class="btn ghost" id="eno">Cancel</button><button class="btn" id="eyes">Save dates</button></div>`;
+  const save = async (due, late) => { const x = await MKAPI.call("updateAssignment", { classId: id, id: a.id, due, late }); if (!x.ok) { $("emsg").textContent = x.error; return; } m.hidden = true; renderAssign(id, C); };
+  $("eno").onclick = () => m.hidden = true; $("eclear").onclick = () => save("", ""); $("eyes").onclick = () => save($("edue").value, $("elate").value);
+}
 async function renderAssign(id, C) {
   const box = $("asgbox"); if (!box) return;
   const r = await MKAPI.call("assignmentReport", { classId: id });
   if (!r.ok) { box.innerHTML = `<h3 style="color:var(--navy)">📌 Assigned simulations</h3><p class="note">${esc(r.error)}</p>`; return; }
-  const A = r.assignments, S = r.students, N = S.length;
+  const ALL = r.assignments, S = r.students, N = S.length;
+  const A = ALL.filter(a => !a.closed), CLOSED = ALL.filter(a => a.closed); const IX = new Map(ALL.map((a, i) => [a.id, i]));
   ASG_PICK = ASG_PICK && ASG_PICK.cls === id ? ASG_PICK : { cls: id, course: C.course, unit: "" };
   const pc = courseCat(ASG_PICK.course) || courseCat(C.course);
   if (!ASG_PICK.unit || !pc.units.some(u => String(u[0]) === String(ASG_PICK.unit))) ASG_PICK.unit = String(pc.units[0][0]);
-  const assigned = new Set(A.map(a => a.course + "|" + a.lab));
+  const assigned = new Set(ALL.map(a => a.course + "|" + a.lab));
   const sims = pc.labs.filter(l => String(l[1]) === ASG_PICK.unit);
-  const summary = A.map((a, i) => { const col = r.rows[i], done = col.filter(p => p.done).length, avg = N ? Math.round(col.reduce((t, p) => t + p.pct, 0) / N) : 0, started = col.filter(p => p.started).length;
-    return { a, i, done, avg, started }; });
+  const sumOf = a => { const i = IX.get(a.id), col = r.rows[i], done = col.filter(p => p.done).length, avg = N ? Math.round(col.reduce((t, p) => t + p.pct, 0) / N) : 0, started = col.filter(p => p.started).length;
+    return { a, i, done, avg, started, late: col.filter(p => p.status === "late").length, missing: col.filter(p => p.status === "missing").length }; };
+  const summary = A.map(sumOf);
   if (ASG_FILTER && !A.some(a => a.id === ASG_FILTER)) ASG_FILTER = "";
   const shown = summary.filter(x => !ASG_FILTER || x.a.id === ASG_FILTER);
   box.innerHTML = `<div class="asghead"><h3 style="color:var(--navy);margin:0">📌 Assigned simulations</h3><span class="note">Students see these on their <b>My profile</b> dashboard. Progress: Explore (mission) · Practice (3 right) · Check · Reflection — 25% each; 100% only when all four are done.</span></div>
     <details class="asgpick" ${A.length ? "" : "open"}><summary><b>＋ Assign simulations</b></summary>
       <div class="form3"><label class="fl">Course<select id="apc">${courseOptions()}</select></label><label class="fl">Unit<select id="apu">${pc.units.map(u => `<option value="${u[0]}" ${String(u[0]) === ASG_PICK.unit ? "selected" : ""}>Unit ${u[0]} · ${esc(u[1])}</option>`).join("")}</select></label><span></span></div>
+      <div class="form3"><label class="fl">Due date (optional)<input type="date" id="apdue" value="${esc(ASG_PICK.due || "")}"></label><label class="fl">Late submissions until (optional)<input type="date" id="aplate" value="${esc(ASG_PICK.late || "")}"></label><span class="note" style="align-self:end">After the late date the assignment closes and leaves the lists. No late date = closes after the due date.</span></div>
       <div class="simpick">${sims.map(l => { const k = pc.file + "|" + l[0], on = assigned.has(k); return `<label class="${on ? "on" : ""}"><input type="checkbox" value="${esc(l[0])}" data-t="${esc(l[2])}" ${on ? "checked disabled" : ""}> ${esc(l[2])}${on ? ` <small>assigned</small>` : ""}</label>`; }).join("")}</div>
       <div class="tools"><button class="btn" id="apgo">Assign selected</button><span class="note" id="apmsg"></span></div></details>
-    ${A.length ? `<div class="tscroll"><table class="data"><tr><th>Simulation</th><th>Course</th><th>Completed</th><th>Started</th><th>Class average</th><th></th></tr>
-      ${summary.map(x => `<tr class="${ASG_FILTER === x.a.id ? "sel" : ""}"><td><a href="${x.a.course}#lab=${encodeURIComponent(x.a.lab)}&tab=explore" target="_blank" rel="noopener"><b>${esc(x.a.title)}</b></a></td><td>${esc(x.a.courseName)}</td><td>${x.done} / ${N}</td><td>${x.started}</td><td style="white-space:nowrap">${pctBar(x.avg)}</td>
-        <td style="white-space:nowrap"><button class="btn sm ghost" data-af="${x.a.id}">${ASG_FILTER === x.a.id ? "Show all" : "Only this"}</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove from this class">✕</button></td></tr>`).join("")}</table></div>
+    ${A.length ? `<div class="tscroll"><table class="data"><tr><th>Simulation</th><th>Course</th><th>Due</th><th>Late until</th><th>Completed</th><th>Late</th><th>Missing</th><th>Class average</th><th></th></tr>
+      ${summary.map(x => `<tr class="${ASG_FILTER === x.a.id ? "sel" : ""}"><td><a href="${x.a.course}#lab=${encodeURIComponent(x.a.lab)}&tab=explore" target="_blank" rel="noopener"><b>${esc(x.a.title)}</b></a></td><td>${esc(x.a.courseName)}</td>
+        <td style="white-space:nowrap">${x.a.due ? fmtDay(x.a.due) : `<span class="note">—</span>`}</td><td style="white-space:nowrap">${x.a.late ? fmtDay(x.a.late) : x.a.due ? `<span class="note">no late work</span>` : `<span class="note">—</span>`}</td>
+        <td>${x.done} / ${N}</td><td>${x.late || ""}</td><td>${x.missing ? `<b style="color:#e03131">${x.missing}</b>` : ""}</td><td style="white-space:nowrap">${pctBar(x.avg)}</td>
+        <td style="white-space:nowrap"><button class="btn sm ghost" data-ad="${x.a.id}" title="Due and late dates">📅</button> <button class="btn sm ghost" data-af="${x.a.id}">${ASG_FILTER === x.a.id ? "Show all" : "Only this"}</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove from this class">✕</button></td></tr>`).join("")}</table></div>
     <div class="asghead" style="margin-top:14px"><h3 style="color:var(--navy);margin:0">Progress by student</h3>
       <div class="tools" style="margin:0"><select id="aflt"><option value="">All assigned simulations</option>${A.map(a => `<option value="${a.id}" ${ASG_FILTER === a.id ? "selected" : ""}>${esc(a.title)}</option>`).join("")}</select><button class="btn sm ghost" id="acsv">⬇ Spreadsheet</button><button class="btn sm ghost" id="aref">↻ Refresh</button></div></div>
-    ${N ? `<div class="tscroll" style="max-height:560px"><table class="data asgtab"><thead><tr><th>Simulation</th><th>Student</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th></tr></thead><tbody>
+    ${N ? `<div class="tscroll" style="max-height:560px"><table class="data asgtab"><thead><tr><th>Simulation</th><th>Student</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th><th>Status</th></tr></thead><tbody>
       ${shown.map(x => S.map((s, j) => { const p = r.rows[x.i][j]; return `<tr><td>${esc(x.a.title)}</td><td><b>${esc(s.name || s.username)}</b> <small class="note">${esc(s.nick)}</small></td>
         <td>${PART(p.explore, p.explore ? "✓ Done" : "—")}</td><td>${PART(p.practice ? true : p.pRight ? "half" : false, `${Math.min(3, p.pRight)}/3`)}</td>
-        <td>${PART(p.checked, p.checked ? `${p.check}/${p.checkTotal}` : "—")}</td><td title="${esc(p.reflectText)}">${PART(p.reflect, p.reflect ? "✓ Written" : "—")}</td><td style="white-space:nowrap">${pctBar(p.pct)}</td></tr>`; }).join("")).join("")}</tbody></table></div>`
+        <td>${PART(p.checked, p.checked ? `${p.check}/${p.checkTotal}` : "—")}</td><td title="${esc(p.reflectText)}">${PART(p.reflect, p.reflect ? "✓ Written" : "—")}</td><td style="white-space:nowrap">${pctBar(p.pct)}</td><td>${x.a.due ? statPill(p.status) : p.done ? statPill("ontime") : ""}</td></tr>`; }).join("")).join("")}</tbody></table></div>`
       : `<p class="note">Add students to this class to track their progress.</p>`}`
-    : `<p class="note">Nothing assigned yet. Pick a unit above, tick the simulations and click <b>Assign selected</b>.</p>`}`;
+    : `<p class="note">${CLOSED.length ? "No open assignments." : "Nothing assigned yet. Pick a unit above, tick the simulations and click <b>Assign selected</b>."}</p>`}
+    ${CLOSED.length ? `<details class="asgclosed"><summary><b>🔒 Closed assignments (${CLOSED.length})</b> <span class="note">— past the late-submission date, hidden from students</span></summary>
+      <div class="tscroll"><table class="data"><tr><th>Simulation</th><th>Due</th><th>Late until</th><th>Completed on time</th><th>Late</th><th>Not completed</th><th></th></tr>
+      ${CLOSED.map(sumOf).map(x => `<tr><td><b>${esc(x.a.title)}</b> <small class="note">${esc(x.a.courseName)}</small></td><td>${fmtDay(x.a.due)}</td><td>${x.a.late ? fmtDay(x.a.late) : "—"}</td><td>${x.done - x.late} / ${N}</td><td>${x.late}</td><td>${N - x.done}</td>
+        <td style="white-space:nowrap"><button class="btn sm ghost" data-ad="${x.a.id}">📅 Reopen</button> <button class="btn sm ghost" data-cx="${x.a.id}">⬇ CSV</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove">✕</button></td></tr>`).join("")}</table></div></details>` : ""}`;
   $("apc").value = pc.file;
   $("apc").onchange = () => { ASG_PICK.course = $("apc").value; ASG_PICK.unit = ""; renderAssign(id, C); };
   $("apu").onchange = () => { ASG_PICK.unit = $("apu").value; renderAssign(id, C).then(() => { const d = box.querySelector(".asgpick"); if (d) d.open = true; }); };
   $("apgo").onclick = async () => { const items = [...box.querySelectorAll(".simpick input:checked:not(:disabled)")].map(i => ({ course: pc.file, lab: i.value, title: i.dataset.t }));
     if (!items.length) { $("apmsg").textContent = "Tick at least one simulation."; return; } $("apmsg").textContent = "Assigning…";
-    const x = await MKAPI.call("assignLabs", { classId: id, items }); if (!x.ok) { $("apmsg").textContent = x.error; return; } renderAssign(id, C); };
+    ASG_PICK.due = $("apdue").value; ASG_PICK.late = $("aplate").value;
+    const x = await MKAPI.call("assignLabs", { classId: id, items, due: ASG_PICK.due, late: ASG_PICK.late }); if (!x.ok) { $("apmsg").textContent = x.error; return; } renderAssign(id, C); };
   box.querySelectorAll("[data-un]").forEach(b => b.onclick = () => confirmBox("Remove this assignment?", "Students keep all their progress — the simulation is only removed from the class list.", "Remove", async () => { await MKAPI.call("unassignLab", { classId: id, id: b.dataset.un }); renderAssign(id, C); }));
+  box.querySelectorAll("[data-ad]").forEach(b => b.onclick = () => editDates(id, ALL.find(a => a.id === b.dataset.ad), C));
+  box.querySelectorAll("[data-cx]").forEach(b => b.onclick = () => csvOf([sumOf(ALL.find(a => a.id === b.dataset.cx))]));
   box.querySelectorAll("[data-af]").forEach(b => b.onclick = () => { ASG_FILTER = ASG_FILTER === b.dataset.af ? "" : b.dataset.af; renderAssign(id, C); });
   if ($("aflt")) $("aflt").onchange = () => { ASG_FILTER = $("aflt").value; renderAssign(id, C); };
   if ($("aref")) $("aref").onclick = () => renderAssign(id, C);
-  if ($("acsv")) $("acsv").onclick = () => { const head = ["Simulation", "Course", "Student", "Nickname", "Username", "Explore", "Practice (right of 3)", "Check", "Reflection", "Reflection text", "Progress %"];
-    const rows = []; shown.forEach(x => S.forEach((s, j) => { const p = r.rows[x.i][j]; rows.push([x.a.title, x.a.courseName, s.name, s.nick, s.username, p.explore ? "done" : "", Math.min(3, p.pRight), p.checked ? `${p.check}/${p.checkTotal}` : "", p.reflect ? "done" : "", p.reflectText, p.pct]); }));
-    download(`${C.name.replace(/[^a-z0-9]+/gi, "-")}-assignments.csv`, [head].concat(rows).map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv"); };
+  function csvOf(list) { const head = ["Simulation", "Course", "Due", "Late until", "Student", "Nickname", "Username", "Explore", "Practice (right of 3)", "Check", "Reflection", "Reflection text", "Progress %", "Status"];
+    const rows = []; list.forEach(x => S.forEach((s, j) => { const p = r.rows[x.i][j]; rows.push([x.a.title, x.a.courseName, x.a.due, x.a.late, s.name, s.nick, s.username, p.explore ? "done" : "", Math.min(3, p.pRight), p.checked ? `${p.check}/${p.checkTotal}` : "", p.reflect ? "done" : "", p.reflectText, p.pct, x.a.due || p.done ? (STAT[p.status] || STAT.open)[1].replace(/^[^A-Za-z]+/, "") : ""]); }));
+    download(`${C.name.replace(/[^a-z0-9]+/gi, "-")}-assignments.csv`, [head].concat(rows).map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv"); }
+  if ($("acsv")) $("acsv").onclick = () => csvOf(shown);
 }
 /* ---------------- assignments (student dashboard) ---------------- */
 function renderMyAssignments(list) {
@@ -1397,8 +1456,9 @@ function renderMyAssignments(list) {
   const groups = {}; list.forEach(a => (groups[a.courseName] = groups[a.courseName] || []).push(a));
   el.innerHTML = `<p class="note">${todo ? `<b>${todo}</b> to finish` : "All done — great work! 🎉"} · finish all four parts (Explore, Practice, Check, Reflection) to reach 100%.</p>` +
     Object.entries(groups).map(([cn, arr]) => { const col = (SUBJ[arr[0].subject] || {}).color || "#3E4981";
-      return `<div class="asgcourse" style="--c:${col}"><h4>${esc(cn)}</h4>${arr.sort((a, b) => a.parts.done - b.parts.done).map(a => { const p = a.parts;
-        return `<a class="asgitem ${p.done ? "done" : ""}" href="${a.course}#lab=${encodeURIComponent(a.lab)}&tab=explore"><span class="t">${p.done ? "✅" : "▶"} ${esc(a.title)}<small>${esc(a.className)}</small></span>
+      return `<div class="asgcourse" style="--c:${col}"><h4>${esc(cn)}</h4>${arr.sort((a, b) => a.parts.done - b.parts.done || (a.due || "9999").localeCompare(b.due || "9999")).map(a => { const p = a.parts;
+        const dueLine = !a.due ? "" : p.status === "ontime" ? ` · <b class="okc">done on time</b>` : p.status === "late" ? ` · <b class="latec">done late</b>` : p.status === "missing" ? ` · <b class="latec">⏰ past due — late work open until ${fmtDay(a.late || a.due)}</b>` : ` · <b>due ${fmtDay(a.due)}</b>`;
+        return `<a class="asgitem ${p.done ? "done" : ""} ${p.status === "missing" ? "overdue" : ""}" href="${a.course}#lab=${encodeURIComponent(a.lab)}&tab=explore"><span class="t">${p.done ? "✅" : "▶"} ${esc(a.title)}<small>${esc(a.className)}${dueLine}</small></span>
           <span class="parts">${PART(p.explore, "Explore")}${PART(p.practice ? true : p.pRight ? "half" : false, "Practice")}${PART(p.checked, "Check")}${PART(p.reflect, "Reflection")}</span><span class="pc">${pctBar(p.pct)}</span></a>`; }).join("")}</div>`; }).join("");
 }
 function studentDetail(s, C, labs, units) {
