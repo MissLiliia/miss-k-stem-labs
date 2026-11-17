@@ -245,6 +245,10 @@ table.data tr.sel td{background:#edf2ff}
 .asgclosed summary{cursor:pointer}
 .asgitem.overdue{border-color:#ffa8a8;background:#fff8f8}
 .okc{color:#2b8a3e}.latec{color:#d9480f}
+/* per-student progress */
+.stusum{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
+.stusum>div{margin-right:10px}
+.closedrow td{background:#fafafa}
 </style></head>
 <body>
 <header class="topbar"><div class="in">
@@ -1375,7 +1379,7 @@ async function renderClass(body, id) {
   body.querySelectorAll("[data-rm]").forEach(b => b.onclick = () => confirmBox(`Remove ${esc(b.dataset.rm)} from ${esc(C.name)}?`, "The student keeps their account, XP and other classes.", "Remove", async () => { await MKAPI.call("removeFromClass", { classId: id, username: b.dataset.rm }); renderClass(body, id); }));
 }
 /* ---------------- assignments (teacher) ---------------- */
-let ASG_FILTER = "", ASG_PICK = null;
+let ASG_FILTER = "", ASG_PICK = null, ASG_STU = "";
 const PART = (ok, txt) => `<span class="pp ${ok === true ? "ok" : ok === "half" ? "half" : ""}">${txt}</span>`;
 function pctBar(p) { return `<div class="pbar ${p >= 100 ? "full" : ""}"><i style="width:${p}%"></i></div><b>${p}%</b>`; }
 // due dates: "YYYY-MM-DD" (school days in Bangkok)
@@ -1407,6 +1411,21 @@ async function renderAssign(id, C) {
   const summary = A.map(sumOf);
   if (ASG_FILTER && !A.some(a => a.id === ASG_FILTER)) ASG_FILTER = "";
   const shown = summary.filter(x => !ASG_FILTER || x.a.id === ASG_FILTER);
+  if (ASG_STU && !S.some(s => s.username === ASG_STU)) ASG_STU = "";
+  const allSum = ALL.map(sumOf);   // every simulation ever assigned to this class (open + closed)
+  const stat = (x, p) => x.a.due ? statPill(p.status) : p.done ? statPill("ontime") : "";
+  const rowHtml = (x, s, j, showName) => { const p = r.rows[x.i][j]; return `<tr class="${x.a.closed ? "closedrow" : ""}"><td>${esc(x.a.title)}${x.a.closed ? ` <span class="pp">🔒 Closed</span>` : ""}${showName ? "" : `<small class="note" style="display:block">${x.a.due ? "Due " + fmtDay(x.a.due) : esc(x.a.courseName)}</small>`}</td>${showName ? `<td><b>${esc(s.name || s.username)}</b> <small class="note">${esc(s.nick)}</small></td>` : ""}
+        <td>${PART(p.explore, p.explore ? "✓ Done" : "—")}</td><td>${PART(p.practice ? true : p.pRight ? "half" : false, `${Math.min(3, p.pRight)}/3`)}</td>
+        <td>${PART(p.checked, p.checked ? `${p.check}/${p.checkTotal}` : "—")}</td><td title="${esc(p.reflectText)}">${PART(p.reflect, p.reflect ? "✓ Written" : "—")}</td><td style="white-space:nowrap">${pctBar(p.pct)}</td><td>${stat(x, p)}</td></tr>`; };
+  const stuSum = j => { const ps = allSum.map(x => r.rows[x.i][j]); const n = ps.length;
+    return { n, done: ps.filter(p => p.done).length, ontime: allSum.filter((x, k) => ps[k].done && (!x.a.due || ps[k].status === "ontime")).length, late: ps.filter(p => p.status === "late").length,
+      missing: allSum.filter((x, k) => !ps[k].done && (x.a.closed || ps[k].status === "missing")).length, avg: n ? Math.round(ps.reduce((t, p) => t + p.pct, 0) / n) : 0,
+      checkPct: (() => { const c = ps.filter(p => p.checked && p.checkTotal); return c.length ? Math.round(c.reduce((t, p) => t + p.check / p.checkTotal, 0) / c.length * 100) : null; })() }; };
+  const stuView = () => { const j = S.findIndex(s => s.username === ASG_STU), s = S[j], k = stuSum(j);
+    return `<div class="stusum"><div><b>${esc(s.name || s.username)}</b> <small class="note">${esc(s.nick)} · @${esc(s.username)}</small></div>
+      <span class="pp ok">${k.done} / ${k.n} completed</span><span class="pp ok">${k.ontime} on time</span>${k.late ? `<span class="pp late">${k.late} late</span>` : ""}${k.missing ? `<span class="pp miss">${k.missing} missing</span>` : ""}<span class="pp">Average progress ${k.avg}%</span>${k.checkPct != null ? `<span class="pp">Check score ${k.checkPct}%</span>` : ""}</div>
+      <div class="tscroll" style="max-height:560px"><table class="data asgtab"><thead><tr><th>Simulation</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th><th>Status</th></tr></thead><tbody>
+      ${allSum.map(x => rowHtml(x, s, j, false)).join("")}</tbody></table></div>`; };
   box.innerHTML = `<div class="asghead"><h3 style="color:var(--navy);margin:0">📌 Assigned simulations</h3><span class="note">Students see these on their <b>My profile</b> dashboard. Progress: Explore (mission) · Practice (3 right) · Check · Reflection — 25% each; 100% only when all four are done.</span></div>
     <details class="asgpick" ${A.length ? "" : "open"}><summary><b>＋ Assign simulations</b></summary>
       <div class="form3"><label class="fl">Course<select id="apc">${courseOptions()}</select></label><label class="fl">Unit<select id="apu">${pc.units.map(u => `<option value="${u[0]}" ${String(u[0]) === ASG_PICK.unit ? "selected" : ""}>Unit ${u[0]} · ${esc(u[1])}</option>`).join("")}</select></label><span></span></div>
@@ -1418,18 +1437,18 @@ async function renderAssign(id, C) {
         <td style="white-space:nowrap">${x.a.due ? fmtDay(x.a.due) : `<span class="note">—</span>`}</td><td style="white-space:nowrap">${x.a.late ? fmtDay(x.a.late) : x.a.due ? `<span class="note">no late work</span>` : `<span class="note">—</span>`}</td>
         <td>${x.done} / ${N}</td><td>${x.late || ""}</td><td>${x.missing ? `<b style="color:#e03131">${x.missing}</b>` : ""}</td><td style="white-space:nowrap">${pctBar(x.avg)}</td>
         <td style="white-space:nowrap"><button class="btn sm ghost" data-ad="${x.a.id}" title="Due and late dates">📅</button> <button class="btn sm ghost" data-af="${x.a.id}">${ASG_FILTER === x.a.id ? "Show all" : "Only this"}</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove from this class">✕</button></td></tr>`).join("")}</table></div>
-    <div class="asghead" style="margin-top:14px"><h3 style="color:var(--navy);margin:0">Progress by student</h3>
-      <div class="tools" style="margin:0"><select id="aflt"><option value="">All assigned simulations</option>${A.map(a => `<option value="${a.id}" ${ASG_FILTER === a.id ? "selected" : ""}>${esc(a.title)}</option>`).join("")}</select><button class="btn sm ghost" id="acsv">⬇ Spreadsheet</button><button class="btn sm ghost" id="aref">↻ Refresh</button></div></div>
-    ${N ? `<div class="tscroll" style="max-height:560px"><table class="data asgtab"><thead><tr><th>Simulation</th><th>Student</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th><th>Status</th></tr></thead><tbody>
-      ${shown.map(x => S.map((s, j) => { const p = r.rows[x.i][j]; return `<tr><td>${esc(x.a.title)}</td><td><b>${esc(s.name || s.username)}</b> <small class="note">${esc(s.nick)}</small></td>
-        <td>${PART(p.explore, p.explore ? "✓ Done" : "—")}</td><td>${PART(p.practice ? true : p.pRight ? "half" : false, `${Math.min(3, p.pRight)}/3`)}</td>
-        <td>${PART(p.checked, p.checked ? `${p.check}/${p.checkTotal}` : "—")}</td><td title="${esc(p.reflectText)}">${PART(p.reflect, p.reflect ? "✓ Written" : "—")}</td><td style="white-space:nowrap">${pctBar(p.pct)}</td><td>${x.a.due ? statPill(p.status) : p.done ? statPill("ontime") : ""}</td></tr>`; }).join("")).join("")}</tbody></table></div>`
-      : `<p class="note">Add students to this class to track their progress.</p>`}`
+`
     : `<p class="note">${CLOSED.length ? "No open assignments." : "Nothing assigned yet. Pick a unit above, tick the simulations and click <b>Assign selected</b>."}</p>`}
     ${CLOSED.length ? `<details class="asgclosed"><summary><b>🔒 Closed assignments (${CLOSED.length})</b> <span class="note">— past the late-submission date, hidden from students</span></summary>
       <div class="tscroll"><table class="data"><tr><th>Simulation</th><th>Due</th><th>Late until</th><th>Completed on time</th><th>Late</th><th>Not completed</th><th></th></tr>
       ${CLOSED.map(sumOf).map(x => `<tr><td><b>${esc(x.a.title)}</b> <small class="note">${esc(x.a.courseName)}</small></td><td>${fmtDay(x.a.due)}</td><td>${x.a.late ? fmtDay(x.a.late) : "—"}</td><td>${x.done - x.late} / ${N}</td><td>${x.late}</td><td>${N - x.done}</td>
-        <td style="white-space:nowrap"><button class="btn sm ghost" data-ad="${x.a.id}">📅 Reopen</button> <button class="btn sm ghost" data-cx="${x.a.id}">⬇ CSV</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove">✕</button></td></tr>`).join("")}</table></div></details>` : ""}`;
+        <td style="white-space:nowrap"><button class="btn sm ghost" data-ad="${x.a.id}">📅 Reopen</button> <button class="btn sm ghost" data-cx="${x.a.id}">⬇ CSV</button> <button class="btn sm ghost" data-un="${x.a.id}" title="Remove">✕</button></td></tr>`).join("")}</table></div></details>` : ""}
+    ${ALL.length ? `<div class="asghead" style="margin-top:14px"><h3 style="color:var(--navy);margin:0">Progress by student</h3>
+      <div class="tools" style="margin:0"><select id="astu"><option value="">All students</option>${S.map(s => `<option value="${esc(s.username)}" ${ASG_STU === s.username ? "selected" : ""}>${esc(s.name || s.username)}</option>`).join("")}</select>
+        ${ASG_STU ? "" : `<select id="aflt"><option value="">All open assignments</option>${A.map(a => `<option value="${a.id}" ${ASG_FILTER === a.id ? "selected" : ""}>${esc(a.title)}</option>`).join("")}</select>`}
+        ${ASG_STU ? `<button class="btn sm" id="arep1">📄 Parent report</button>` : `<button class="btn sm ghost" id="arepall" title="One page per student, every assigned simulation">📄 Reports for all students</button>`}<button class="btn sm ghost" id="acsv">⬇ Spreadsheet</button><button class="btn sm ghost" id="aref">↻ Refresh</button></div></div>
+    ${!N ? `<p class="note">Add students to this class to track their progress.</p>` : ASG_STU ? stuView() : `<div class="tscroll" style="max-height:560px"><table class="data asgtab"><thead><tr><th>Simulation</th><th>Student</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th><th>Status</th></tr></thead><tbody>
+      ${shown.map(x => S.map((s, j) => rowHtml(x, s, j, true)).join("")).join("")}</tbody></table></div>`}` : ""}`;
   $("apc").value = pc.file;
   $("apc").onchange = () => { ASG_PICK.course = $("apc").value; ASG_PICK.unit = ""; renderAssign(id, C); };
   $("apu").onchange = () => { ASG_PICK.unit = $("apu").value; renderAssign(id, C).then(() => { const d = box.querySelector(".asgpick"); if (d) d.open = true; }); };
@@ -1442,11 +1461,50 @@ async function renderAssign(id, C) {
   box.querySelectorAll("[data-cx]").forEach(b => b.onclick = () => csvOf([sumOf(ALL.find(a => a.id === b.dataset.cx))]));
   box.querySelectorAll("[data-af]").forEach(b => b.onclick = () => { ASG_FILTER = ASG_FILTER === b.dataset.af ? "" : b.dataset.af; renderAssign(id, C); });
   if ($("aflt")) $("aflt").onchange = () => { ASG_FILTER = $("aflt").value; renderAssign(id, C); };
+  if ($("astu")) $("astu").onchange = () => { ASG_STU = $("astu").value; renderAssign(id, C); };
+  if ($("arep1")) $("arep1").onclick = () => parentReport([S.findIndex(s => s.username === ASG_STU)]);
+  if ($("arepall")) $("arepall").onclick = () => parentReport(S.map((_, j) => j));
+  // printable parent report: one page per student, every simulation ever assigned to this class
+  function parentReport(idx) {
+    const w = window.open("", "_blank"); if (!w) { confirmBox("Pop-ups are blocked", "Please allow pop-ups for this site, then click the report button again.", "OK", () => {}); return; }
+    const logo = (document.querySelector("img.basis") || {}).src || "", klogo = (document.querySelector("img.k") || {}).src || "";
+    const teachers = [C.ownerName || C.teacher].concat((C.coTeachers || []).map(t => t.name)).join(", ");
+    const today = new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric", timeZone: "Asia/Bangkok" });
+    const mark = (ok, txt) => `<span class="m ${ok === true ? "y" : ok ? "h" : "n"}">${txt}</span>`;
+    const page = j => { const s = S[j], k = stuSum(j);
+      const refl = allSum.map(x => [x, r.rows[x.i][j]]).filter(([, p]) => p.reflect && p.reflectText);
+      return `<section class="page"><header><img src="${logo}" class="lb"><div class="ht"><h1>Simulation Lab Progress Report</h1><p>${esc(C.courseName)} · ${esc(C.name)} · Teacher${teachers.includes(",") ? "s" : ""}: ${esc(teachers)}</p></div><img src="${klogo}" class="lk"></header>
+        <div class="who"><div><small>Student</small><b>${esc(s.name || s.username)}</b></div><div><small>Report date</small><b>${today}</b></div></div>
+        <div class="kpis"><div><b>${k.done}/${k.n}</b><small>simulations completed</small></div><div><b>${k.ontime}</b><small>completed on time</small></div><div><b>${k.late}</b><small>completed late</small></div><div><b>${k.missing}</b><small>missing</small></div><div><b>${k.avg}%</b><small>average progress</small></div><div><b>${k.checkPct == null ? "—" : k.checkPct + "%"}</b><small>Check questions correct</small></div></div>
+        <table><thead><tr><th>Simulation</th><th>Due</th><th>Explore</th><th>Practice</th><th>Check</th><th>Reflection</th><th>Progress</th><th>Status</th></tr></thead><tbody>
+        ${allSum.map(x => { const p = r.rows[x.i][j], st = x.a.due || p.done ? (STAT[p.status] || STAT.open)[1].replace(/^[^A-Za-z]+/, "") : "";
+          const stc = p.status === "missing" || (x.a.closed && !p.done) ? "Missing" : st;
+          return `<tr><td><b>${esc(x.a.title)}</b><small>${esc(x.a.courseName)}</small></td><td>${x.a.due ? fmtDay(x.a.due) : "—"}</td><td>${mark(p.explore, p.explore ? "✓" : "—")}</td><td>${mark(p.practice ? true : p.pRight ? "h" : false, Math.min(3, p.pRight) + "/3")}</td><td>${mark(p.checked, p.checked ? p.check + "/" + p.checkTotal : "—")}</td><td>${mark(p.reflect, p.reflect ? "✓" : "—")}</td><td><div class="bar"><i style="width:${p.pct}%"></i></div>${p.pct}%</td><td class="st ${stc === "Missing" ? "bad" : stc === "Late" ? "late" : stc === "On time" ? "ok" : ""}">${stc || "In progress"}</td></tr>`; }).join("")}
+        </tbody></table>
+        ${refl.length ? `<h2>In ${esc((s.name || "").split(" ")[0] || "their")}'s own words: reflections</h2>${refl.map(([x, p]) => `<div class="rf"><b>${esc(x.a.title)}</b><p>${esc(p.reflectText)}</p></div>`).join("")}` : ""}
+        <footer><b>How to read this report.</b> Each simulation has four parts, worth 25% each: <b>Explore</b> (the lab mission), <b>Practice</b> (3 correct answers), <b>Check</b> (the short quiz) and <b>Reflection</b> (a written explanation). A simulation reaches 100% only when all four parts are done. Students can open any simulation again at <b>missliliia.github.io/miss-k-stem-labs</b> to review.</footer></section>`; };
+    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Progress report · ${esc(idx.length === 1 ? S[idx[0]].name : C.name)}</title><style>
+      @page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#1e2a38;margin:0;background:#eef0f8}
+      .bar0{position:sticky;top:0;background:#3E4981;color:#fff;padding:10px 16px;display:flex;gap:12px;align-items:center;font-size:14px}.bar0 button{background:#fff;color:#3E4981;border:0;border-radius:8px;padding:8px 14px;font-weight:700;cursor:pointer}
+      .page{background:#fff;max-width:800px;margin:16px auto;padding:22px 26px;page-break-after:always;break-after:page}
+      header{display:flex;align-items:center;gap:14px;border-bottom:3px solid #3E4981;padding-bottom:10px}.lb{height:46px}.lk{height:40px;margin-left:auto}.ht h1{margin:0;font-size:21px;color:#3E4981}.ht p{margin:3px 0 0;font-size:12.5px;color:#495057}
+      .who{display:flex;gap:40px;margin:14px 0 10px}.who small,.kpis small{display:block;font-size:11px;color:#868e96}.who b{font-size:17px}
+      .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:14px}.kpis div{border:1px solid #dee2e6;border-radius:10px;padding:8px;text-align:center}.kpis b{font-size:19px;color:#3E4981}
+      table{width:100%;border-collapse:collapse;font-size:12px}th{background:#3E4981;color:#fff;padding:6px;text-align:left;font-size:11.5px}td{border-bottom:1px solid #e9ecef;padding:6px;vertical-align:middle}td small{display:block;color:#868e96;font-size:10.5px}
+      tr{break-inside:avoid}.m{display:inline-block;min-width:34px;text-align:center;border-radius:999px;padding:1px 6px;font-weight:700}.m.y{background:#d3f9d8;color:#2b8a3e}.m.h{background:#fff3bf;color:#a76a00}.m.n{background:#f1f3f5;color:#adb5bd}
+      .bar{display:inline-block;width:52px;height:7px;background:#e9ecef;border-radius:9px;overflow:hidden;margin-right:5px;vertical-align:middle}.bar i{display:block;height:100%;background:#40c057}
+      .st{font-weight:700}.st.ok{color:#2b8a3e}.st.late{color:#d9480f}.st.bad{color:#e03131}
+      h2{font-size:15px;color:#3E4981;margin:16px 0 6px}.rf{border-left:4px solid #3E4981;background:#f8f9fc;padding:6px 10px;margin:6px 0;font-size:12px;break-inside:avoid}.rf p{margin:3px 0 0;white-space:pre-wrap}
+      footer{margin-top:14px;font-size:11px;color:#495057;border-top:1px solid #dee2e6;padding-top:8px}
+      @media print{body{background:#fff}.bar0{display:none}.page{margin:0;max-width:none;padding:0}}
+      </style></head><body><div class="bar0">📄 ${idx.length === 1 ? "Parent report" : idx.length + " parent reports (one page each)"}<button onclick="print()">Print / Save as PDF</button><span style="opacity:.8">Choose “Save as PDF” as the printer to download.</span></div>${idx.map(page).join("")}</body></html>`);
+    w.document.close();
+  }
   if ($("aref")) $("aref").onclick = () => renderAssign(id, C);
-  function csvOf(list) { const head = ["Simulation", "Course", "Due", "Late until", "Student", "Nickname", "Username", "Explore", "Practice (right of 3)", "Check", "Reflection", "Reflection text", "Progress %", "Status"];
-    const rows = []; list.forEach(x => S.forEach((s, j) => { const p = r.rows[x.i][j]; rows.push([x.a.title, x.a.courseName, x.a.due, x.a.late, s.name, s.nick, s.username, p.explore ? "done" : "", Math.min(3, p.pRight), p.checked ? `${p.check}/${p.checkTotal}` : "", p.reflect ? "done" : "", p.reflectText, p.pct, x.a.due || p.done ? (STAT[p.status] || STAT.open)[1].replace(/^[^A-Za-z]+/, "") : ""]); }));
-    download(`${C.name.replace(/[^a-z0-9]+/gi, "-")}-assignments.csv`, [head].concat(rows).map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv"); }
-  if ($("acsv")) $("acsv").onclick = () => csvOf(shown);
+  function csvOf(list, only) { const head = ["Simulation", "Course", "Due", "Late until", "Student", "Nickname", "Username", "Explore", "Practice (right of 3)", "Check", "Reflection", "Reflection text", "Progress %", "Status"];
+    const rows = []; list.forEach(x => S.forEach((s, j) => { if (only != null && j !== only) return; const p = r.rows[x.i][j]; rows.push([x.a.title, x.a.courseName, x.a.due, x.a.late, s.name, s.nick, s.username, p.explore ? "done" : "", Math.min(3, p.pRight), p.checked ? `${p.check}/${p.checkTotal}` : "", p.reflect ? "done" : "", p.reflectText, p.pct, x.a.due || p.done ? (STAT[p.status] || STAT.open)[1].replace(/^[^A-Za-z]+/, "") : ""]); }));
+    download(`${(only != null ? (S[only].name || S[only].username) + "-" : "") + C.name}`.replace(/[^a-z0-9]+/gi, "-") + `-assignments.csv`, [head].concat(rows).map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv"); }
+  if ($("acsv")) $("acsv").onclick = () => ASG_STU ? csvOf(allSum, S.findIndex(s => s.username === ASG_STU)) : csvOf(shown);
 }
 /* ---------------- assignments (student dashboard) ---------------- */
 function renderMyAssignments(list) {
