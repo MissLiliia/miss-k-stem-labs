@@ -230,6 +230,14 @@ table.data tr.sel td{background:#edf2ff}
 .rung .ri{font-size:22px}.rung small{color:#868e96}
 .rung.got{opacity:1;border-color:var(--r)}
 .rung.now{opacity:1;border-color:var(--r);background:color-mix(in srgb,var(--r) 12%,#fff);box-shadow:0 0 0 3px color-mix(in srgb,var(--r) 25%,transparent)}
+/* co-teachers */
+.cochips{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 4px}
+.cochip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:#eef0f8;color:var(--navy);font-weight:600;font-size:14px}
+.cochip small{font-weight:400;color:#868e96}
+.cochip.own{background:#fff4e6;color:#d9480f}
+.cochip .x{border:0;background:transparent;font-size:18px;line-height:1;cursor:pointer;color:#868e96;padding:0 2px}
+.cochip .x:hover{color:#e03131}
+.classcard .cotag{display:block;margin-top:4px;font-size:12px;color:var(--c);font-weight:700}
 </style></head>
 <body>
 <header class="topbar"><div class="in">
@@ -559,7 +567,8 @@ var MKCore = (function () {
     enroll: ["classId", "username", "added"],
     progress: ["username", "course", "lab", "mission", "pRight", "pTried", "check", "checkTotal", "reflect", "xp", "updated"],
     events: ["username", "t", "course", "subject", "lab", "kind", "xp"],
-    assign: ["id", "classId", "course", "lab", "title", "added", "by"]
+    assign: ["id", "classId", "course", "lab", "title", "added", "by"],
+    coteach: ["classId", "email", "added", "by"]
   };
   var COURSES = {
     "physics6-labs.html": ["Physics 6", 6, "physics"], "physics7-labs.html": ["Physics 7", 7, "physics"], "physics8-labs.html": ["Physics 8", 8, "physics"],
@@ -613,7 +622,12 @@ var MKCore = (function () {
     if (s.kind === "student") { var st = DB.all("students").filter(function (x) { return x.username === s.id; })[0]; return st ? { kind: "student", username: st.username, nick: st.nick, grade: st.grade, name: st.name } : null; }
     return null;
   }
-  function teacherClasses(DB, me) { return DB.all("classes").filter(function (c) { return me.role === "admin" || c.teacher === me.email; }); }
+  // a teacher sees the classes they own plus the classes they co-teach (co-teachers have the same rights, except deleting the class and managing co-teachers)
+  function coIds(DB, email) { return DB.all("coteach").filter(function (x) { return x.email === email; }).map(function (x) { return x.classId; }); }
+  function teacherClasses(DB, me) { var co = coIds(DB, me.email); return DB.all("classes").filter(function (c) { return me.role === "admin" || c.teacher === me.email || co.indexOf(c.id) >= 0; }); }
+  function canManage(me, c) { return me.role === "admin" || c.teacher === me.email; }
+  function teacherName(DB, email) { if (email === DB.prop("ADMIN_EMAIL")) return "Miss K"; var t = DB.all("teachers").filter(function (x) { return x.email === email; })[0]; return t ? t.name || t.email : email; }
+  function coList(DB, classId) { return DB.all("coteach").filter(function (x) { return x.classId === classId; }).map(function (x) { return { email: x.email, name: teacherName(DB, x.email) }; }); }
   function canSeeStudent(DB, me, username, classId) {
     var mine = teacherClasses(DB, me).map(function (c) { return c.id; });
     if (classId && mine.indexOf(classId) < 0) return false;
@@ -685,12 +699,14 @@ var MKCore = (function () {
   A.deleteClass = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var c = teacherClasses(DB, me).filter(function (x) { return x.id === p.classId; })[0]; if (!c) return err("Class not found.");
+    if (!canManage(me, c)) return err("Only the class owner can delete this class. You can leave it instead.");
+    DB.remove("coteach", function (x) { return x.classId === c.id; });
     DB.remove("classes", function (x) { return x.id === c.id; }); DB.remove("enroll", function (e) { return e.classId === c.id; }); DB.remove("assign", function (a) { return a.classId === c.id; }); return ok();
   };
   A.listClasses = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var en = DB.all("enroll");
-    return ok({ classes: teacherClasses(DB, me).map(function (c) { return { id: c.id, name: c.name, course: c.course, courseName: (COURSES[c.course] || [""])[0], grade: c.grade, code: c.code, teacher: c.teacher, students: en.filter(function (e) { return e.classId === c.id; }).length }; }) });
+    return ok({ classes: teacherClasses(DB, me).map(function (c) { return { id: c.id, name: c.name, course: c.course, courseName: (COURSES[c.course] || [""])[0], grade: c.grade, code: c.code, teacher: c.teacher, ownerName: teacherName(DB, c.teacher), co: c.teacher !== me.email && me.role !== "admin", students: en.filter(function (e) { return e.classId === c.id; }).length }; }) });
   };
   function uniqueUsername(DB, base) {
     base = lower(base).replace(/[^a-z0-9]/g, "").slice(0, 14) || "student"; var taken = {}; DB.all("students").forEach(function (s) { taken[s.username] = 1; });
@@ -755,13 +771,41 @@ var MKCore = (function () {
     DB.update("students", function (x) { return x.username === u; }, patch); return ok();
   };
 
+  /* ----- co-teachers: the class owner adds another teacher who already has an account */
+  A.findTeachers = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var q = lower(p.q), list = DB.all("teachers").filter(function (t) { return !t.revoked && t.email !== me.email; }).map(function (t) { return { email: t.email, name: t.name || t.email }; });
+    var ad = DB.prop("ADMIN_EMAIL"); if (ad && ad !== me.email && !list.some(function (t) { return t.email === ad; })) list.push({ email: ad, name: "Miss K" });
+    return ok({ teachers: list.filter(function (t) { return !q || lower(t.email).indexOf(q) >= 0 || lower(t.name).indexOf(q) >= 0; }).slice(0, 30) });
+  };
+  A.addCoTeacher = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    if (!canManage(me, c)) return err("Only the class owner can add co-teachers.");
+    var email = lower(p.email), ad = DB.prop("ADMIN_EMAIL");
+    var t = DB.all("teachers").filter(function (x) { return x.email === email && !x.revoked; })[0];
+    if (!t && email !== ad) return err("No teacher account with that email. Ask Miss K to create one first.");
+    if (email === c.teacher) return err("This teacher already owns the class.");
+    if (DB.all("coteach").some(function (x) { return x.classId === c.id && x.email === email; })) return err("Already a co-teacher of this class.");
+    DB.insert("coteach", { classId: c.id, email: email, added: now(), by: me.email });
+    return ok({ coTeachers: coList(DB, c.id) });
+  };
+  A.removeCoTeacher = function (DB, p, me) {
+    if (!me || me.kind !== "teacher") return err("Teachers only.");
+    var c = myClass(DB, me, p.classId); if (!c) return err("Class not found.");
+    var email = lower(p.email || me.email);
+    if (email !== me.email && !canManage(me, c)) return err("Only the class owner can remove co-teachers.");
+    DB.remove("coteach", function (x) { return x.classId === c.id && x.email === email; });
+    return ok({ coTeachers: coList(DB, c.id) });
+  };
+
   /* ----- reports */
   A.classReport = function (DB, p, me) {
     if (!me || me.kind !== "teacher") return err("Teachers only.");
     var c = teacherClasses(DB, me).filter(function (x) { return x.id === p.classId; })[0]; if (!c) return err("Class not found.");
     var users = DB.all("enroll").filter(function (e) { return e.classId === c.id; }).map(function (e) { return e.username; });
     var st = DB.all("students"), pr = DB.all("progress").filter(function (r) { return r.course === c.course && users.indexOf(r.username) >= 0; }), ev = DB.all("events"), m = monthOf(now());
-    return ok({ cls: { id: c.id, name: c.name, course: c.course, courseName: (COURSES[c.course] || [""])[0], grade: c.grade, code: c.code, teacher: c.teacher },
+    return ok({ cls: { id: c.id, name: c.name, course: c.course, courseName: (COURSES[c.course] || [""])[0], grade: c.grade, code: c.code, teacher: c.teacher, ownerName: teacherName(DB, c.teacher), coTeachers: coList(DB, c.id), canManage: canManage(me, c) },
       students: users.map(function (u) { var s = st.filter(function (x) { return x.username === u; })[0] || { username: u };
         var mine = ev.filter(function (e) { return e.username === u; }), xpCourse = 0, xpMonth = 0, xpAll = 0;
         mine.forEach(function (e) { var x = +e.xp || 0; xpAll += x; if (e.course === c.course) { xpCourse += x; if (monthOf(e.t) === m) xpMonth += x; } });
@@ -821,7 +865,7 @@ var MKCore = (function () {
       events: DB.all("events").filter(function (e) { return e.username === me.username; }).map(function (e) { return { t: +e.t, f: e.course, s: e.subject, l: e.lab, k: e.kind, xp: +e.xp }; }),
       progress: DB.all("progress").filter(function (r) { return r.username === me.username && (!p.course || r.course === p.course); }),
       classes: en.map(function (e) { var c = cl.filter(function (x) { return x.id === e.classId; })[0]; if (!c) return null; var t = te.filter(function (x) { return x.email === c.teacher; })[0];
-        return { name: c.name, course: (COURSES[c.course] || [""])[0], teacher: t ? t.name || t.email : (c.teacher === DB.prop("ADMIN_EMAIL") ? "Miss K" : c.teacher) }; }).filter(Boolean),
+        return { name: c.name, course: (COURSES[c.course] || [""])[0], teacher: [t ? t.name || t.email : (c.teacher === DB.prop("ADMIN_EMAIL") ? "Miss K" : c.teacher)].concat(coList(DB, c.id).map(function (x) { return x.name; })).join(", ") }; }).filter(Boolean),
       assignments: myAssignments(DB, me.username) });
   };
   function myAssignments(DB, u) {
@@ -1228,7 +1272,7 @@ async function renderClasses(body, T) {
       <p class="note" id="cgrade"></p></div>
     <h2 class="sec" style="margin-top:22px">${T.role === "admin" ? "All classes" : "My classes"}</h2>
     ${r.classes.length ? `<div class="classgrid">${r.classes.map(c => { const cc = courseCat(c.course) || {}; const col = (SUBJ[cc.subject] || {}).color || "#3E4981";
-      return `<button class="classcard" data-cls="${c.id}" style="--c:${col}"><span class="cc">${esc(c.courseName)} · Grade ${c.grade}</span><b>${esc(c.name)}</b><span>${c.students} student${c.students === 1 ? "" : "s"} · code <code>${esc(c.code)}</code></span>${T.role === "admin" && c.teacher !== T.email ? `<small class="note">${esc(c.teacher)}</small>` : ""}</button>`; }).join("")}</div>`
+      return `<button class="classcard" data-cls="${c.id}" style="--c:${col}"><span class="cc">${esc(c.courseName)} · Grade ${c.grade}</span><b>${esc(c.name)}</b><span>${c.students} student${c.students === 1 ? "" : "s"} · code <code>${esc(c.code)}</code></span>${c.co ? `<small class="cotag">👥 Co-teacher · owner ${esc(c.ownerName || c.teacher)}</small>` : T.role === "admin" && c.teacher !== T.email ? `<small class="note">${esc(c.teacher)}</small>` : ""}</button>`; }).join("")}</div>`
       : `<p class="note">No classes yet. Create your first class above, then add students.</p>`}`;
   const gradeNote = () => { const c = courseCat($("ccourse").value); $("cgrade").textContent = c ? `${cname(c)} is a Grade ${c.grade} course · ${c.labs.length} simulations.` : ""; };
   $("ccourse").onchange = gradeNote; gradeNote();
@@ -1250,7 +1294,12 @@ async function renderClass(body, id) {
   body.innerHTML = `<button class="btn ghost sm" id="back">← All classes</button>
   <div class="tbox clshead" style="--c:${(SUBJ[(cc || {}).subject] || {}).color || "#3E4981"}"><div><span class="cc">${esc(C.courseName)} · Grade ${C.grade}</span><h2>${esc(C.name)}</h2>
     <p class="note">Students can also join from <b>My profile → Join a class</b> with the code <code class="big">${esc(C.code)}</code></p></div>
-    <div class="tools"><button class="btn" id="addnew">＋ Add new students</button><button class="btn ghost" id="addold">＋ Add existing student</button><button class="btn ghost" id="csv">⬇ Spreadsheet</button><button class="btn ghost" id="delc">Delete class</button></div></div>
+    <div class="tools"><button class="btn" id="addnew">＋ Add new students</button><button class="btn ghost" id="addold">＋ Add existing student</button><button class="btn ghost" id="csv">⬇ Spreadsheet</button>${C.canManage ? `<button class="btn ghost" id="delc">Delete class</button>` : `<button class="btn ghost" id="leavec">Leave class</button>`}</div></div>
+  <div class="tbox cobox"><h3 style="color:var(--navy)">👥 Teachers of this class</h3>
+    <div class="cochips"><span class="cochip own">👑 ${esc(C.ownerName || C.teacher)} <small>owner</small></span>${(C.coTeachers || []).map(t => `<span class="cochip">${esc(t.name)} <small>${esc(t.email)}</small>${C.canManage ? `<button class="x" data-unco="${esc(t.email)}" title="Remove co-teacher">×</button>` : ""}</span>`).join("")}</div>
+    ${C.canManage ? `<p class="note">Co-teachers have full rights in this class: add students, assign simulations, check progress and reset passwords. Only you can delete the class or change co-teachers.</p>
+    <div class="tools"><input type="text" id="coq" list="colist" placeholder="Teacher name or school email" style="max-width:320px"><datalist id="colist"></datalist><button class="btn sm" id="coadd">＋ Add co-teacher</button><span class="note" id="comsg"></span></div>`
+    : `<p class="note">You are a co-teacher: you can add students, assign simulations and check progress. The owner manages the class and its co-teachers.</p>`}</div>
   <div id="addbox"></div>
   <div class="tiles"><div><b>${S.length}</b><span>students</span></div><div><b>${week}</b><span>active this week</span></div><div><b>${S.reduce((a, s) => a + s.done, 0)}</b><span>labs completed</span></div><div><b>${fmt(S.length ? Math.round(S.reduce((a, s) => a + s.xpCourse, 0) / S.length) : 0)}</b><span>average XP in ${esc(C.courseName)}</span></div><div><b>${N}</b><span>labs in the course</span></div></div>
   <div class="tbox asg" id="asgbox"><h3 style="color:var(--navy)">📌 Assigned simulations</h3><p class="note">Loading…</p></div>
@@ -1265,7 +1314,16 @@ async function renderClass(body, id) {
     ${perLab.map(({ l, d, st, avg }) => `<tr><td>${l[1]}</td><td><a href="${C.course}#lab=${encodeURIComponent(l[0])}&tab=explore" target="_blank" rel="noopener">${esc(l[2])}</a></td><td><div class="minibar"><i style="width:${S.length ? Math.round(d / S.length * 100) : 0}%"></i></div>${d} / ${S.length}</td><td>${st}</td><td>${avg == null ? "—" : avg + "%"}</td></tr>`).join("")}</table></div></div>`;
   $("back").onclick = () => { CUR_CLASS = null; renderTeacher(); };
   renderAssign(id, C);
-  $("delc").onclick = () => confirmBox(`Delete ${esc(C.name)}?`, "Students keep their accounts and XP — they are only removed from this class.", "Delete class", async () => { await MKAPI.call("deleteClass", { classId: id }); CUR_CLASS = null; renderTeacher(); });
+  if ($("leavec")) $("leavec").onclick = () => confirmBox(`Leave ${esc(C.name)}?`, "The class, its students and their progress stay with the owner. You can be added again later.", "Leave class", async () => { await MKAPI.call("removeCoTeacher", { classId: id }); CUR_CLASS = null; renderTeacher(); });
+  body.querySelectorAll("[data-unco]").forEach(b => b.onclick = () => confirmBox(`Remove ${esc(b.dataset.unco)} as co-teacher?`, "They will no longer see this class. Students and progress are not changed.", "Remove", async () => { await MKAPI.call("removeCoTeacher", { classId: id, email: b.dataset.unco }); renderClass(body, id); }));
+  if ($("coadd")) {
+    MKAPI.call("findTeachers", { q: "" }).then(x => { if (x.ok && $("colist")) $("colist").innerHTML = x.teachers.map(t => `<option value="${esc(t.email)}">${esc(t.name)}</option>`).join(""); });
+    const addCo = async () => { const q = $("coq").value.trim(); if (!q) return; let email = q;
+      if (!q.includes("@")) { const f = await MKAPI.call("findTeachers", { q }); if (!f.ok || f.teachers.length !== 1) { $("comsg").textContent = f.ok && f.teachers.length ? "More than one teacher matches — pick the email from the list." : "No teacher found. Ask Miss K to create their account first."; return; } email = f.teachers[0].email; }
+      const x = await MKAPI.call("addCoTeacher", { classId: id, email }); if (!x.ok) { $("comsg").textContent = x.error; return; } renderClass(body, id); };
+    $("coadd").onclick = addCo; $("coq").onkeydown = e => { if (e.key === "Enter") addCo(); };
+  }
+  if ($("delc")) $("delc").onclick = () => confirmBox(`Delete ${esc(C.name)}?`, "Students keep their accounts and XP — they are only removed from this class.", "Delete class", async () => { await MKAPI.call("deleteClass", { classId: id }); CUR_CLASS = null; renderTeacher(); });
   $("csv").onclick = () => { const head = ["Name", "Nickname", "Username", "Grade", `XP in ${C.courseName}`, "XP this month", "Labs complete", "Labs started", "Missions", "Average check %", "Last active"].concat(labs.map(l => `U${l[1]} ${l[2]}`));
     const rows = S.map(s => [s.name, s.nick, s.username, s.grade, s.xpCourse, s.xpMonth, s.done, s.started, s.missions, s.avg == null ? "" : s.avg, s.lastActive ? new Date(s.lastActive).toLocaleString() : ""].concat(labs.map(l => { const L = s.by[l[0]]; return !L ? "" : labStatus(L) === "done" ? `done ${L.check}/${L.checkTotal}` : "started"; })));
     download(`${C.name.replace(/[^a-z0-9]+/gi, "-")}-progress.csv`, [head].concat(rows).map(r => r.map(x => `"${String(x ?? "").replace(/"/g, '""')}"`).join(",")).join("\n"), "text/csv"); };
