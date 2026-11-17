@@ -41040,6 +41040,7 @@ boot();
 
 
 
+
 <!--XP--><script src="missk-config.js"></script><script>/* =====================================================================
    Miss K STEM Labs · BACKEND CORE
    The same file runs in two places:
@@ -41065,8 +41066,7 @@ var MKCore = (function () {
     "biology6-labs.html": ["Biology 6", 6, "biology"], "biology7-labs.html": ["Biology 7", 7, "biology"], "biology8-labs.html": ["Biology 8", 8, "biology"],
     "prealgebra-labs.html": ["Pre-Algebra", 6, "math"], "alggeo1-labs.html": ["Algebra & Geometry I", 7, "math"], "alggeo2-labs.html": ["Algebra & Geometry II", 8, "math"]
   };
-  var PRICES = { panda: 150, penguin: 150, frog: 150, owl: 200, elephant: 400, tiger: 400, astronaut: 450, scientist: 450, octopus: 500, alien: 900, dragon: 1000, wizard: 1000, cyborg: 1100, goldbot: 2000, galaxycat: 2200, lion: 2500,
-    ocean: 200, sunset: 200, mint: 250, circuit: 500, periodic: 500, space: 600, bangkok: 1000, aurora: 1200, gold: 2500 };
+  var PRICES = { "panda": 150, "penguin": 150, "frog": 150, "owl": 200, "elephant": 400, "tiger": 400, "astronaut": 450, "scientist": 450, "octopus": 500, "alien": 900, "dragon": 1000, "wizard": 1000, "cyborg": 1100, "goldbot": 2000, "galaxycat": 2200, "lion": 2500, "chick": 120, "koala": 150, "bee": 150, "fox": 200, "sloth": 200, "puffer": 250, "redpanda": 250, "mango": 400, "beaker": 450, "shark": 500, "axolotl": 500, "dino": 550, "chameleon": 600, "rocket": 900, "knight": 1100, "ghost": 1300, "unicorn": 2800, "phoenix": 3500, "ocean": 200, "sunset": 200, "mint": 250, "circuit": 500, "periodic": 500, "space": 600, "bangkok": 1000, "aurora": 1200, "gold": 2500, "snow": 200, "songkran": 250, "jungle": 250, "blueprint": 450, "chalk": 500, "dna": 550, "reef": 600, "volcano": 1000, "market": 1100, "prism": 1200, "nebula": 3000, "s-atom": 60, "s-tube": 60, "s-micro": 60, "s-magnet": 60, "s-idea": 60, "s-ruler": 60, "s-abacus": 60, "s-sprout": 60, "s-elephant": 80, "s-mango": 80, "s-dna": 150, "s-scope": 150, "s-volcano": 150, "s-microbe": 150, "s-bolt": 200, "s-rainbow": 200, "s-tuktuk": 250, "s-dino": 250, "s-rocket": 400, "s-saturn": 400, "s-comet": 450, "s-trophy": 500, "s-crown": 800, "s-diamond": 900, "s-galaxy": 1000 };
   var STARTER = ["rookie", "cat", "robot", "atom", "teal", "paper"];
 
   /* ---------------- tiny SHA-256 (pure JS, works in Apps Script and browsers) */
@@ -41450,9 +41450,16 @@ const MXP = (() => {
   const SUBJECTS = { physics: { name: "Physics", color: "#1864ab" }, chemistry: { name: "Chemistry", color: "#d9480f" }, biology: { name: "Biology", color: "#2b8a3e" }, math: { name: "Math", color: "#5f3dc4" } };
 
   /* ---------- levels: Lv n needs 100·n(n−1)/2 XP (0, 100, 300, 600, 1000, …) */
-  const TITLES = ["Lab Rookie", "Explorer", "Investigator", "Experimenter", "Data Detective", "Analyst", "Problem Solver", "Scientist", "Senior Scientist", "Lab Leader", "Researcher", "Inventor", "Professor", "Mastermind", "STEM Legend"];
+  const TITLES = ["Lab Rookie", "Explorer", "Investigator", "Experimenter", "Data Detective", "Analyst", "Problem Solver", "Scientist", "Senior Scientist", "Lab Leader", "Researcher", "Inventor", "Professor", "Mastermind", "STEM Legend",
+    "Quantum Thinker", "Rocket Scientist", "Nobel Hopeful", "Galaxy Brain", "Grand Inventor", "Chief Scientist", "Dean of Discovery", "Master of Elements", "Supernova", "Cosmic Genius", "Time Traveler", "Science Sage", "Universe Builder", "Living Legend", "Ultimate STEM Legend"];
+  // rank tiers: every 5 levels a new rank with its own color and emblem
+  const RANKS = [["Bronze", "🥉", "#b08968"], ["Silver", "🥈", "#868e96"], ["Gold", "🥇", "#f59f00"], ["Platinum", "💠", "#1098ad"], ["Diamond", "💎", "#4263eb"], ["Legend", "👑", "#7048e8"], ["Mythic", "🌌", "#c2255c"]];
   const need = n => 100 * n * (n - 1) / 2;
-  function level(xp) { let n = 1; while (xp >= need(n + 1)) n++; const lo = need(n), hi = need(n + 1); return { n, title: TITLES[Math.min(n - 1, TITLES.length - 1)], lo, hi, pct: Math.round((xp - lo) / (hi - lo) * 100), toNext: hi - xp }; }
+  const rankOf = n => { const r = RANKS[Math.min(Math.floor((n - 1) / 5), RANKS.length - 1)]; return { name: r[0], icon: r[1], color: r[2], step: (n - 1) % 5 + 1 }; };
+  function level(xp) { let n = 1; while (xp >= need(n + 1)) n++; const lo = need(n), hi = need(n + 1);
+    const title = n <= TITLES.length ? TITLES[n - 1] : `${TITLES[TITLES.length - 1]} ★${n - TITLES.length}`;
+    return { n, title, rank: rankOf(n), lo, hi, pct: Math.round((xp - lo) / (hi - lo) * 100), toNext: hi - xp }; }
+  const LEVELS = TITLES.map((t, i) => ({ n: i + 1, title: t, xp: need(i + 1), rank: rankOf(i + 1) }));
 
   /* ---------- storage */
   function blank() { return { v: 1, profile: { nick: "", grade: "", avatar: "rookie", bg: "teal", owned: ["rookie", "cat", "robot", "atom", "teal", "paper"], created: Date.now() }, awarded: {}, log: [], spent: 0, purchases: [] }; }
@@ -41506,6 +41513,27 @@ const MXP = (() => {
     ["streak3", "🔥", "On Fire", "Learn 3 days in a row", T => T.streak >= 3],
     ["streak7", "☄️", "Unstoppable", "Learn 7 days in a row", T => T.streak >= 7],
     ["shopper", "🛍️", "First Purchase", "Buy something in the store", (T, d) => (d.purchases || []).length > 0],
+    ["lab25", "🧫", "Quarter Century", "Complete 25 labs", T => T.labsDone >= 25],
+    ["lab200", "🏛️", "Lab Legend", "Complete 200 labs", T => T.labsDone >= 200],
+    ["perfect25", "🦅", "Eagle Eye", "Score 4/4 on 25 Checks", T => T.perfect >= 25],
+    ["xp2500", "✨", "2,500 Club", "Earn 2,500 XP", T => T.earned >= 2500],
+    ["xp10k", "🏆", "10K Champion", "Earn 10,000 XP", T => T.earned >= 10000],
+    ["xp25k", "🪐", "25K Titan", "Earn 25,000 XP", T => T.earned >= 25000],
+    ["streak14", "⚡", "Two-Week Hero", "Learn 14 days in a row", T => T.streak >= 14],
+    ["streak30", "🏃", "Month Marathon", "Learn 30 days in a row", T => T.streak >= 30],
+    ["month500", "📅", "Monthly Star", "Earn 500 XP in one month", T => T.month >= 500],
+    ["month2000", "🌠", "Monthly Superstar", "Earn 2,000 XP in one month", T => T.month >= 2000],
+    ["phys500", "🔭", "Physics Pro", "Earn 500 XP in Physics", T => T.bySubject.physics >= 500],
+    ["chem500", "⚗️", "Chem Champ", "Earn 500 XP in Chemistry", T => T.bySubject.chemistry >= 500],
+    ["bio500", "🧬", "Bio Boss", "Earn 500 XP in Biology", T => T.bySubject.biology >= 500],
+    ["math500", "📐", "Math Master", "Earn 500 XP in Math", T => T.bySubject.math >= 500],
+    ["allsub500", "🎓", "Renaissance Scientist", "Earn 500 XP in every subject", T => Object.values(T.bySubject).every(x => x >= 500)],
+    ["collector", "🎁", "Collector", "Buy 10 items in the store", (T, d) => (d.purchases || []).length >= 10],
+    ["stickers5", "🏷️", "Sticker Fan", "Collect 5 stickers", (T, d) => d.profile.owned.filter(id => (item(id) || {}).type === "sticker").length >= 5],
+    ["stickers15", "📒", "Sticker Superfan", "Collect 15 stickers", (T, d) => d.profile.owned.filter(id => (item(id) || {}).type === "sticker").length >= 15],
+    ["level10", "🔟", "Double Digits", "Reach Level 10", T => level(T.earned).n >= 10],
+    ["level15", "🥇", "Gold Rank", "Reach Level 15", T => level(T.earned).n >= 15],
+    ["level20", "💎", "Elite Scientist", "Reach Level 20", T => level(T.earned).n >= 20],
   ];
   const badges = (d, T) => BADGES.map(([id, icon, name, desc, f]) => ({ id, icon, name, desc, got: !!f(T, d) }));
 
@@ -41517,6 +41545,10 @@ const MXP = (() => {
     AV("elephant", "Thai Elephant", 400, "rare"), AV("tiger", "Tiger", 400, "rare"), AV("astronaut", "Astronaut", 450, "rare"), AV("scientist", "Lab Coat Pro", 450, "rare"), AV("octopus", "Octopus", 500, "rare"),
     AV("alien", "Friendly Alien", 900, "epic"), AV("dragon", "Dragon", 1000, "epic"), AV("wizard", "Math Wizard", 1000, "epic"), AV("cyborg", "Cyborg", 1100, "epic"),
     AV("goldbot", "Golden Bot", 2000, "legendary"), AV("galaxycat", "Galaxy Cat", 2200, "legendary"), AV("lion", "Crowned Lion", 2500, "legendary"),
+    AV("chick", "Baby Chick", 120, "common"), AV("koala", "Koala", 150, "common"), AV("bee", "Busy Bee", 150, "common"), AV("fox", "Clever Fox", 200, "common"), AV("sloth", "Chill Sloth", 200, "common"), AV("puffer", "Puffer Fish", 250, "common"), AV("redpanda", "Red Panda", 250, "common"),
+    AV("mango", "Mango Buddy", 400, "rare"), AV("beaker", "Beaker Buddy", 450, "rare"), AV("shark", "Shark", 500, "rare"), AV("axolotl", "Axolotl", 500, "rare"), AV("dino", "Dino Rex", 550, "rare"), AV("chameleon", "Chameleon", 600, "rare"),
+    AV("rocket", "Rocket Racer", 900, "epic"), AV("knight", "Lab Knight", 1100, "epic"), AV("ghost", "Quantum Ghost", 1300, "epic"),
+    AV("unicorn", "Star Unicorn", 2800, "legendary"), AV("phoenix", "Golden Phoenix", 3500, "legendary"),
   ];
   const BG = (id, name, price, tier, css) => ({ id, name, price, tier, css, type: "bg" });
   const pat = svg => `url('data:image/svg+xml,${encodeURIComponent(svg)}')`;
@@ -41533,13 +41565,36 @@ const MXP = (() => {
     BG("aurora", "Aurora", 1200, "epic", "radial-gradient(ellipse at 20% 10%,#63e6be 0%,transparent 45%),radial-gradient(ellipse at 80% 30%,#9775fa 0%,transparent 50%),linear-gradient(180deg,#0b1d3a,#1b3b6f)"),
     BG("gold", "Golden Galaxy", 2500, "legendary", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><g fill="#fff7d6"><circle cx="12" cy="18" r="1.4"/><circle cx="55" cy="40" r="1"/><circle cx="30" cy="66" r="1.6"/><circle cx="70" cy="10" r="1.1"/></g></svg>')},radial-gradient(circle at 50% 40%,#ffd43b,#f08c00 45%,#5c2d00 100%)`),
   ];
-  const ITEMS = [...AVATARS, ...BGS];
+  BGS.push(
+    BG("snow", "Snowy Peaks", 200, "common", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100"><path d="M0 100 40 40l25 30 35-55 40 50 25-25 35 60z" fill="#fff" opacity=".85"/></svg>')} bottom/200px 100px repeat-x,linear-gradient(180deg,#a5d8ff,#e7f5ff)`),
+    BG("songkran", "Songkran Splash", 250, "common", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60"><g fill="#fff" opacity=".6"><path d="M12 8c4 6 6 9 6 12a6 6 0 0 1-12 0c0-3 2-6 6-12z"/><path d="M42 30c3 5 5 7 5 10a5 5 0 0 1-10 0c0-3 2-5 5-10z"/></g></svg>')},linear-gradient(135deg,#3bc9db,#1c7ed6)`),
+    BG("jungle", "Rainforest", 250, "common", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="70" height="70"><g fill="#2b8a3e" opacity=".55"><path d="M10 60C10 35 30 25 40 20 35 35 25 50 10 60z"/><path d="M50 30c10-10 15-25 15-28-10 5-20 15-15 28z"/></g></svg>')},linear-gradient(180deg,#b2f2bb,#40c057 70%,#2b8a3e)`),
+    BG("blueprint", "Blueprint", 450, "rare", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><path d="M40 0H0V40" fill="none" stroke="#a5d8ff" stroke-width="1" opacity=".5"/><path d="M20 0V40M0 20H40" stroke="#a5d8ff" stroke-width=".5" opacity=".3"/></svg>')},#1864ab`),
+    BG("chalk", "Chalkboard Formulas", 500, "rare", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="220" height="110"><g fill="#fff" opacity=".35" font-family="Georgia,serif" font-size="16"><text x="10" y="25">F = ma</text><text x="120" y="45">W = mg</text><text x="30" y="80">v = d / t</text><text x="140" y="100">a² + b² = c²</text></g></svg>')},#2f4a3a`),
+    BG("dna", "DNA Helix", 550, "rare", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="80"><g fill="none" stroke-width="3" opacity=".6"><path d="M5 0q30 20 30 40T5 80" stroke="#63e6be"/><path d="M35 0Q5 20 5 40t30 40" stroke="#ffd43b"/></g><path d="M10 10h20M12 30h16M12 50h16M10 70h20" stroke="#fff" stroke-width="2" opacity=".4"/></svg>')},linear-gradient(135deg,#0b7285,#1b1f3b)`),
+    BG("reef", "Coral Reef", 600, "rare", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><g fill="#fff" opacity=".45"><circle cx="15" cy="20" r="4"/><circle cx="22" cy="10" r="2"/><circle cx="60" cy="50" r="3"/><circle cx="66" cy="40" r="1.5"/></g></svg>')},linear-gradient(180deg,#22b8cf 0%,#1098ad 50%,#ff8787 100%)`),
+    BG("volcano", "Volcano Glow", 1000, "epic", "radial-gradient(circle at 50% 110%,#ffd43b 0%,#ff6b00 20%,#c92a2a 45%,#2b0a0a 80%)"),
+    BG("market", "Floating Market", 1100, "epic", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="60"><path d="M0 40q15-8 30 0t30 0 30 0 30 0" fill="none" stroke="#fff" stroke-width="2" opacity=".5"/><path d="M20 30h30l-5 6H25z" fill="#8c5a3c"/><circle cx="35" cy="24" r="5" fill="#ffd43b"/><path d="M78 30h26l-4 6H82z" fill="#8c5a3c"/><circle cx="91" cy="24" r="5" fill="#e03131"/></svg>')},linear-gradient(180deg,#ffe066,#ff922b 45%,#0ca678 46%,#087f5b)`),
+    BG("prism", "Rainbow Prism", 1200, "epic", "conic-gradient(from 200deg at 50% 50%,#ff6b6b,#ffd43b,#69db7c,#4dabf7,#9775fa,#f783ac,#ff6b6b)"),
+    BG("nebula", "Purple Nebula", 3000, "legendary", `${pat('<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><g fill="#fff"><circle cx="12" cy="14" r="1.3"/><circle cx="70" cy="22" r="1"/><circle cx="40" cy="80" r="1.6"/><circle cx="88" cy="68" r="1"/><circle cx="25" cy="50" r=".8"/></g></svg>')},radial-gradient(ellipse at 30% 30%,#f783ac 0%,transparent 40%),radial-gradient(ellipse at 70% 60%,#9775fa 0%,transparent 45%),linear-gradient(180deg,#1b1f3b,#3b1f5f)`)
+  );
+  const ST = (id, emoji, name, price, tier) => ({ id, emoji, name, price, tier, type: "sticker" });
+  const STICKERS = [
+    ST("s-atom", "⚛️", "Atom", 60, "common"), ST("s-tube", "🧪", "Test Tube", 60, "common"), ST("s-micro", "🔬", "Microscope", 60, "common"), ST("s-magnet", "🧲", "Magnet", 60, "common"),
+    ST("s-idea", "💡", "Bright Idea", 60, "common"), ST("s-ruler", "📐", "Triangle Ruler", 60, "common"), ST("s-abacus", "🧮", "Abacus", 60, "common"), ST("s-sprout", "🌱", "Sprout", 60, "common"),
+    ST("s-elephant", "🐘", "Thai Elephant", 80, "common"), ST("s-mango", "🥭", "Mango", 80, "common"),
+    ST("s-dna", "🧬", "DNA", 150, "rare"), ST("s-scope", "🔭", "Telescope", 150, "rare"), ST("s-volcano", "🌋", "Volcano", 150, "rare"), ST("s-microbe", "🦠", "Microbe", 150, "rare"),
+    ST("s-bolt", "⚡", "Lightning", 200, "rare"), ST("s-rainbow", "🌈", "Rainbow", 200, "rare"), ST("s-tuktuk", "🛺", "Tuk-tuk", 250, "rare"), ST("s-dino", "🦕", "Dino", 250, "rare"),
+    ST("s-rocket", "🚀", "Rocket", 400, "epic"), ST("s-saturn", "🪐", "Saturn", 400, "epic"), ST("s-comet", "☄️", "Comet", 450, "epic"), ST("s-trophy", "🏆", "Trophy", 500, "epic"),
+    ST("s-crown", "👑", "Crown", 800, "legendary"), ST("s-diamond", "💎", "Diamond", 900, "legendary"), ST("s-galaxy", "🌌", "Galaxy", 1000, "legendary"),
+  ];
+  const ITEMS = [...AVATARS, ...BGS, ...STICKERS];
   const item = id => ITEMS.find(i => i.id === id);
   function buy(id) { const d = load(), it = item(id), T = totals(d); if (!it) return "No such item."; if (d.profile.owned.includes(id)) return "You already own this.";
     if (T.coins < it.price) return `You need ${it.price - T.coins} more XP.`; d.spent = (d.spent || 0) + it.price; d.profile.owned.push(id); d.purchases.push({ id, price: it.price, t: Date.now() });
-    if (it.type === "avatar") d.profile.avatar = id; else d.profile.bg = id; save(d); return ""; }
-  function equip(id) { const d = load(), it = item(id); if (!it || !d.profile.owned.includes(id)) return; if (it.type === "avatar") d.profile.avatar = id; else d.profile.bg = id; save(d); }
-  const bgCss = id => (item(id) || BGS[0]).css;
+    if (it.type === "avatar") d.profile.avatar = id; else if (it.type === "bg") d.profile.bg = id; save(d); return ""; }
+  function equip(id) { const d = load(), it = item(id); if (!it || !d.profile.owned.includes(id) || it.type === "sticker") return; if (it.type === "avatar") d.profile.avatar = id; else d.profile.bg = id; save(d); }
+  const bgCss = id => { const i = item(id); return i && i.type === "bg" ? i.css : BGS[0].css; };
 
   /* ---------- avatar drawings (original SVG, 100×100) */
   const C = (x, y, r, f, o = "") => `<circle cx="${x}" cy="${y}" r="${r}" fill="${f}" ${o}/>`;
@@ -41568,6 +41623,24 @@ const MXP = (() => {
     cyborg: () => C(50, 50, 30, "#f1c27d") + P("M50 20a30 30 0 0 1 0 60z", "#adb5bd") + `<rect x="54" y="42" width="18" height="12" rx="3" fill="#1e2a38"/>` + C(63, 48, 4, "#fa5252") + C(38, 48, 4.2, "#1e2a38") + `<path d="M36 62q14 8 24 0" fill="none" stroke="#1e2a38" stroke-width="3" stroke-linecap="round"/><path d="M58 30h10M58 70h10M62 26v8" stroke="#495057" stroke-width="2.5"/>`,
     goldbot: () => `<line x1="50" y1="10" x2="50" y2="22" stroke="#e67700" stroke-width="3"/>` + C(50, 9, 6, "#fff3bf", 'stroke="#f59f00" stroke-width="2"') + `<rect x="18" y="22" width="64" height="58" rx="16" fill="#fcc419" stroke="#e67700" stroke-width="3"/><rect x="27" y="35" width="46" height="24" rx="8" fill="#5c2d00"/>` + C(40, 47, 5.5, "#fff3bf") + C(60, 47, 5.5, "#fff3bf") + `<path d="M38 68q12 8 24 0" fill="none" stroke="#5c2d00" stroke-width="3.5" stroke-linecap="round"/>`,
     galaxycat: () => P("M24 40 30 12l16 18zM76 40 70 12 54 30z", "#5f3dc4") + C(50, 54, 30, "#3b5bdb") + C(36, 40, 1.6, "#fff") + C(64, 66, 1.4, "#fff") + C(58, 34, 1.2, "#fff") + C(30, 64, 1.2, "#fff") + eyes(52, 12, "#ffd43b", 5) + P("M46 62h8l-4 5z", "#ff8fa3") + smile(67, 6, "#fff"),
+    chick: () => P("M46 24q4-12 8 0q4-9 7 2", "none", 'stroke="#f59f00" stroke-width="3" stroke-linecap="round"') + C(50, 56, 32, "#ffe066") + eyes(50, 11) + P("M44 58h12l-6 7z", "#f76707") + cheeks(60),
+    koala: () => C(24, 36, 16, "#868e96") + C(76, 36, 16, "#868e96") + C(24, 36, 9, "#dee2e6") + C(76, 36, 9, "#dee2e6") + C(50, 54, 30, "#adb5bd") + eyes(48, 12) + E(50, 60, 8, 10, "#343a40") + smile(73, 5),
+    bee: () => E(28, 28, 14, 10, "#d0ebff", 'opacity=".9"') + E(72, 28, 14, 10, "#d0ebff", 'opacity=".9"') + P("M40 26 34 10M60 26l6-16", "none", 'stroke="#1e2a38" stroke-width="2.5"') + C(34, 10, 3, "#1e2a38") + C(66, 10, 3, "#1e2a38") + C(50, 54, 30, "#fcc419") + `<path d="M26 38h48M23 72h54" stroke="#1e2a38" stroke-width="7"/>` + eyes(52) + smile(62, 6),
+    fox: () => P("M20 42 28 10l18 20zM80 42 72 10 54 30z", "#f76707") + P("M26 34 29 18l9 10zM74 34 71 18l-9 10z", "#fff4e6") + P("M18 44q32-24 64 0q-4 30-32 40q-28-10-32-40z", "#fd7e14") + P("M18 44q14 4 24 22l8 18q-28-10-32-40zM82 44q-14 4-24 22l-8 18q28-10 32-40z", "#fff") + eyes(52, 12) + C(50, 74, 4.5, "#1e2a38"),
+    sloth: () => C(50, 52, 32, "#8d6e63") + E(50, 56, 24, 20, "#d7ccc8") + E(38, 52, 8, 5, "#4e342e", 'transform="rotate(-15 38 52)"') + E(62, 52, 8, 5, "#4e342e", 'transform="rotate(15 62 52)"') + C(38, 52, 2.5, "#fff") + C(62, 52, 2.5, "#fff") + E(50, 62, 4, 3, "#4e342e") + smile(68, 5),
+    puffer: () => [...Array(16)].map((_, i) => { const a = i / 16 * 6.283; return P(`M${(50 + 30 * Math.cos(a)).toFixed(1)} ${(52 + 30 * Math.sin(a)).toFixed(1)}L${(50 + 42 * Math.cos(a)).toFixed(1)} ${(52 + 42 * Math.sin(a)).toFixed(1)}`, "none", 'stroke="#e67700" stroke-width="3" stroke-linecap="round"'); }).join("") + C(50, 52, 31, "#ffd43b") + E(50, 64, 20, 12, "#fff9db") + eyes(46, 11) + C(50, 64, 5, "#e8590c"),
+    redpanda: () => C(24, 28, 11, "#c92a2a") + C(76, 28, 11, "#c92a2a") + C(24, 28, 5, "#fff") + C(76, 28, 5, "#fff") + C(50, 54, 31, "#e8590c") + E(36, 62, 12, 10, "#fff") + E(64, 62, 12, 10, "#fff") + E(50, 38, 6, 10, "#fff") + eyes(50, 12) + E(50, 63, 5, 3.5, "#1e2a38"),
+    mango: () => P("M50 18c22 0 34 20 30 44-4 22-22 30-36 26C26 84 18 66 22 48 26 30 36 18 50 18z", "#ffa94d") + P("M52 18c6-10 18-12 24-8-6 8-16 10-24 8z", "#40c057") + eyes(50, 11) + smile(62, 7) + cheeks(60),
+    beaker: () => P("M40 12h20v6h-4v22l18 34c3 6-1 12-8 12H34c-7 0-11-6-8-12l18-34V18h-4z", "#e7f5ff", 'stroke="#1864ab" stroke-width="3"') + P("M30 66h40l5 9c2 5-1 9-6 9H31c-5 0-8-4-6-9z", "#63e6be") + eyes(54, 8, "#1e2a38", 3.5) + smile(61, 5) + C(46, 75, 2.5, "#fff") + C(56, 71, 2, "#fff"),
+    shark: () => P("M50 6 62 30H38z", "#4dabf7") + E(50, 56, 34, 30, "#74c0fc") + E(50, 68, 24, 16, "#e7f5ff") + eyes(46, 14) + P("M34 66h32l-4 6-4-5-4 5-4-5-4 5-4-5-4 5z", "#fff", 'stroke="#1e2a38" stroke-width="1.5"'),
+    axolotl: () => ["M24 40l-14-8", "M22 50H6", "M24 60l-14 8", "M76 40l14-8", "M78 50h16", "M76 60l14 8"].map(d => P(d, "none", 'stroke="#f783ac" stroke-width="6" stroke-linecap="round"')).join("") + E(50, 52, 30, 26, "#fcc2d7") + eyes(48, 13) + smile(60, 7) + cheeks(58),
+    dino: () => [30, 42, 54, 66].map(x => P(`M${x - 4} 28l8-16 6 16z`, "#2b8a3e")).join("") + E(50, 54, 32, 30, "#51cf66") + E(50, 68, 22, 12, "#d3f9d8") + eyes(46, 13) + P("M36 66l4 5 4-5 4 5 4-5 4 5 4-5 4 5", "none", 'stroke="#1e2a38" stroke-width="2"'),
+    chameleon: () => P("M16 58C16 32 40 18 62 22l22 4-10 10c4 10 2 24-10 32-16 10-48 8-48-10z", "#20c997") + C(58, 40, 12, "#12b886") + C(58, 40, 7, "#fff") + C(60, 40, 4, "#1e2a38") + P("M28 62q12 8 26 2", "none", 'stroke="#087f5b" stroke-width="3" stroke-linecap="round"') + P("M24 44l8 4M30 34l8 6", "none", 'stroke="#96f2d7" stroke-width="3" stroke-linecap="round"'),
+    rocket: () => P("M50 6c16 12 22 32 18 56H32C28 38 34 18 50 6z", "#e9ecef", 'stroke="#495057" stroke-width="3"') + C(50, 36, 9, "#74c0fc", 'stroke="#495057" stroke-width="3"') + P("M32 48 18 70l14-4zM68 48l14 22-14-4z", "#fa5252") + P("M38 62h24l-4 12H42z", "#ffd43b") + P("M42 74h16l-8 18z", "#ff922b"),
+    knight: () => P("M50 18V8M44 10q6-8 12 0", "none", 'stroke="#e03131" stroke-width="5" stroke-linecap="round"') + P("M22 52c0-22 12-34 28-34s28 12 28 34v30H22z", "#adb5bd", 'stroke="#495057" stroke-width="3"') + `<rect x="30" y="46" width="40" height="8" rx="3" fill="#1e2a38"/>` + C(42, 50, 2.5, "#63e6be") + C(58, 50, 2.5, "#63e6be") + `<path d="M50 58v18M40 64v12M60 64v12" stroke="#868e96" stroke-width="2.5"/>`,
+    ghost: () => P("M22 56c0-22 12-38 28-38s28 16 28 38v30l-7-6-7 6-7-6-7 6-7-6-7 6-7-6-7 6z", "#e5dbff") + eyes(50, 11, "#5f3dc4", 5) + E(50, 64, 5, 6, "#5f3dc4") + C(16, 30, 2, "#9775fa") + C(84, 24, 2.5, "#9775fa") + C(82, 70, 1.8, "#9775fa"),
+    unicorn: () => P("M50 4l6 22H44z", "#ffd43b", 'stroke="#f08c00" stroke-width="1.5"') + P("M26 32 32 14l10 14zM74 32 68 14 58 28z", "#fff", 'stroke="#dee2e6" stroke-width="2"') + C(50, 54, 30, "#fff", 'stroke="#dee2e6" stroke-width="2"') + P("M22 42c6-16 22-18 30-14-12 2-20 12-22 26z", "#cc5de8") + P("M78 42c-6-16-20-16-26-12 10 4 16 14 16 26z", "#4dabf7") + eyes(54, 11) + smile(67, 6) + cheeks(63),
+    phoenix: () => P("M50 8c8 10 6 20 0 26 10-8 24-8 32 4-10-2-17 2-19 8 9-2 19 4 21 15-20-9-27 2-34 23-7-21-14-32-34-23 2-11 12-17 21-15-2-6-9-10-19-8 8-12 22-12 32-4-6-6-8-16 0-26z", "#ff922b") + P("M50 22c4 8 2 14-2 18 8-4 16-2 20 4-14 0-18 8-18 18 0-10-4-18-18-18 4-6 12-8 20-4-4-4-6-10-2-18z", "#ffd43b") + C(50, 60, 15, "#ffe066") + eyes(58, 6, "#5c2d00", 3) + P("M47 63h6l-3 6z", "#e8590c"),
     lion: () => [...Array(14)].map((_, i) => { const a = i / 14 * 6.283; return C(50 + 32 * Math.cos(a), 54 + 32 * Math.sin(a), 11, "#c2410c"); }).join("") + C(50, 54, 26, "#ffa94d") + P("M30 22l6-14 8 10 6-14 6 14 8-10 6 14z", "#ffd43b", 'stroke="#e67700" stroke-width="1.5"') + eyes(50, 10) + P("M45 60h10l-5 6z", "#5c2d00") + smile(68, 5),
   };
   function avatarSVG(id, size = 64, bgId) {
@@ -41575,7 +41648,7 @@ const MXP = (() => {
     return `<svg viewBox="0 0 100 100" width="${size}" height="${size}" role="img" aria-label="${(item(id) || {}).name || "avatar"}">${body}</svg>`;
   }
 
-  return { KEY, key, student, RULES, SUBJECTS, SUBJECT_OF, level, load, save, blank, totals, sync, badges, AVATARS, BGS, ITEMS, item, buy, equip, bgCss, avatarSVG, monthOf, thisMonth, demo, need };
+  return { KEY, key, student, RULES, SUBJECTS, SUBJECT_OF, level, LEVELS, RANKS, load, save, blank, totals, sync, badges, AVATARS, BGS, STICKERS, ITEMS, item, buy, equip, bgCss, avatarSVG, monthOf, thisMonth, demo, need };
 })();
 </script><script>/* Miss K STEM Labs · student account sync (shared by index.html and every course app) */
 const MKAcct = (() => {
