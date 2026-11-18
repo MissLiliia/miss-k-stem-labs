@@ -249,6 +249,18 @@ table.data tr.sel td{background:#edf2ff}
 .stusum{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0}
 .stusum>div{margin-right:10px}
 .closedrow td{background:#fafafa}
+/* demo vs full version */
+.herodemo{margin:12px 0 0;font-size:.95rem;opacity:.92}
+.access{display:grid;grid-template-columns:1fr 1.6fr;gap:16px;margin-bottom:6px}
+.acc{background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px 20px}
+.acc .ic{font-size:30px}.acc h3{margin:6px 0;color:var(--navy)}.acc p{margin:6px 0 12px}
+.acc.demo{border-top:5px solid #40c057}.acc.full{border-top:5px solid #3E4981}
+.accwho{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 14px}
+.accwho div{background:#f6f8fb;border-radius:12px;padding:10px 12px;font-size:.92rem}.accwho b:first-child{display:block;color:var(--navy);margin-bottom:3px}
+.acc .btns{display:flex;gap:10px;flex-wrap:wrap}
+.accstate{margin:4px 0 22px;color:#566373}.accstate.on{color:#2b8a3e;font-weight:600}
+.labsdemo{background:#fff8e1;border:2px solid #ffd43b;border-radius:16px;padding:12px 16px;margin:0 0 14px}
+@media(max-width:820px){.access,.accwho{grid-template-columns:1fr}}
 </style></head>
 <body>
 <header class="topbar"><div class="in">
@@ -269,6 +281,7 @@ table.data tr.sel td{background:#edf2ff}
       <h1>Learn it. Try it. <em>Level up.</em></h1>
       <p>Miss K STEM Labs gives every middle school student at BASIS International School Bangkok an interactive simulation for every learning objective in science and math — and turns the practice into a game.</p>
       <div class="herobtns"><a class="btn big gold" href="#labs">▶ Start a lab</a><a class="btn big ghostw" href="#profile">Student sign-in</a></div>
+      <p class="herodemo">No account? Try the <b>free demo</b>: the first simulation of every course is open to everyone.</p>
     </div>
   </div></div>
 
@@ -276,6 +289,15 @@ table.data tr.sel td{background:#edf2ff}
     <div class="stats">
       <div><b>1,372</b><span>simulations</span></div><div><b>12</b><span>courses</span></div><div><b>4</b><span>subjects</span></div><div><b>1 : 1</b><span>one lab per learning objective</span></div>
     </div>
+
+    <h2 class="sec" id="access">Demo or full version?</h2>
+    <div class="access">
+      <div class="acc demo"><span class="ic">🔓</span><h3>Free demo · for everyone</h3><p>Anyone can open the <b>first simulation of every course</b> and try the full lab path: Explore, Practice, Check and Reflect.</p><a class="btn ghost" href="#labs">Try a demo lab</a></div>
+      <div class="acc full"><span class="ic">🎓</span><h3>Full version · BASIS International School Bangkok</h3><p>Every simulation in every course, plus <b>XP, levels, badges, the store, the leaderboard and class assignments</b>. The full version and full experience are only for <b>BASIS International School Bangkok students and staff</b>.</p>
+        <div class="accwho"><div><b>🎒 Students</b>Sign in with the <b>username and password from Miss K</b>. There is no self sign-up.</div><div><b>🍎 Teachers &amp; staff</b>Sign in with your <b>@basis.ac.th</b> school email.</div></div>
+        <div class="btns"><a class="btn" href="#profile">Student sign-in</a><a class="btn ghost" href="#teacher">Teacher sign-in</a></div></div>
+    </div>
+    <p class="accstate" id="accstate"></p>
 
     <h2 class="sec">Why Miss K built this website</h2>
     <div class="why">
@@ -309,6 +331,7 @@ table.data tr.sel td{background:#edf2ff}
 <!-- ============================ LABS ============================ -->
 <section data-route="labs" hidden>
   <main class="in">
+    <div class="labsdemo" id="labsdemo" hidden>🔓 <b>Demo version.</b> Without an account you can open the <b>first simulation of each course</b> (marked ▶ below). Every simulation marked 🔒 needs the full version, for BASIS International School Bangkok students and staff. <a href="#profile">Student sign-in</a> · <a href="#teacher">Teacher sign-in</a></div>
     <div class="menu" id="menu">
       <h2>Find your lab <span class="n">1,372 simulations</span></h2>
       <div class="pickers">
@@ -1086,9 +1109,21 @@ function chip() {
   $("demobar").hidden = !MXP.demo();
   const TCH = MKAcct.teacher(), STU = MKAcct.user();
   $("hsign").hidden = !!(TCH || STU || MXP.demo()); $("hteach").hidden = !TCH; $("xpchip").hidden = !!TCH && !MXP.demo();
+  if (typeof accessUI === "function") try { accessUI(); } catch (e) {}
 }
 $("hsign").onclick = () => openSignIn("student");
 $("demoexit").onclick = () => { try { sessionStorage.removeItem("missk-xp-demo"); } catch (e) {} location.hash = "#teacher"; route(); };
+
+/* ---------------- access: free demo (first simulation of each course) vs full version ---------------- */
+const fullAccess = () => { const x = MKAPI.session(); return !!(x && x.token && x.user && (x.user.kind === "student" || x.user.kind === "teacher")); };
+const isLockedLab = (c, id) => !fullAccess() && c.labs[0][0] !== id;
+function accessUI() {
+  const open = fullAccess(), x = MKAPI.session();
+  $("labsdemo").hidden = open;
+  $("accstate").innerHTML = open ? `✅ You are signed in${x.user.kind === "teacher" ? " as a teacher" : ""}: you have the <b>full version</b>, with every simulation unlocked.` : `You are using the <b>free demo</b>. Sign in to unlock every simulation.`;
+  $("accstate").className = "accstate " + (open ? "on" : "");
+  if (typeof fillSims === "function" && sUnit.value) { const v = sSim.value; fillSims(); sSim.value = v; updateMenu(); }
+}
 
 /* ---------------- labs menu ---------------- */
 const course = i => CAT[i], cname = c => c.title || `${SUBJ[c.subject].name} ${c.grade}`;
@@ -1102,14 +1137,16 @@ function fillUnits() { const c = course(sSubj.value);
   c.units.forEach(([n, name]) => sUnit.insertAdjacentHTML("beforeend", `<option value="${n}">Unit ${n} · ${esc(name)}</option>`)); }
 function fillSims() { const c = course(sSubj.value), u = +sUnit.value;
   sSim.innerHTML = `<option value="">${u ? "Choose a simulation…" : "Choose a unit first"}</option>`; sSim.disabled = !u;
-  if (c && u) c.labs.filter(l => l[1] === u).forEach((l, k) => sSim.insertAdjacentHTML("beforeend", `<option value="${esc(l[0])}">${k + 1}. ${esc(l[2])}</option>`)); }
+  if (c && u) c.labs.filter(l => l[1] === u).forEach((l, k) => sSim.insertAdjacentHTML("beforeend", `<option value="${esc(l[0])}">${isLockedLab(c, l[0]) ? "🔒 " : !fullAccess() ? "▶ " : ""}${k + 1}. ${esc(l[2])}${!fullAccess() && !isLockedLab(c, l[0]) ? " (free demo)" : ""}</option>`)); }
 function updateMenu() {
   const c = course(sSubj.value), u = +sUnit.value, id = sSim.value, oc = $("openCourse"), os = $("openSim"), uname = c && u ? ((c.units.find(x => x[0] === u) || [])[1] || "") : "";
   oc.setAttribute("aria-disabled", !c); os.setAttribute("aria-disabled", !(c && id));
   oc.href = c ? c.file + (u ? "#lab=" + encodeURIComponent(c.labs.find(l => l[1] === u)[0]) + "&tab=explore" : "") : "#"; oc.textContent = u ? "Open unit" : "Open course";
   if (c && id) { const l = c.labs.find(x => x[0] === id); os.href = `${c.file}#lab=${encodeURIComponent(id)}&tab=explore`;
-    $("pv").innerHTML = `<div class="u">${esc(cname(c))} · Unit ${u} · ${esc(uname)}</div><div class="t">${esc(l[2])}</div><div class="d">${esc(l[3])} <b style="color:#e67700">· up to 100 XP</b></div>`; }
-  else if (c && u) $("pv").innerHTML = `<div class="u">${esc(cname(c))}</div><div class="t">Unit ${u} · ${esc(uname)}</div><div class="d">Step 3: choose a simulation.</div>`;
+    const lk = isLockedLab(c, id); os.textContent = lk ? "🔒 Full version only" : "▶ Open simulation";
+    $("pv").innerHTML = `<div class="u">${esc(cname(c))} · Unit ${u} · ${esc(uname)}</div><div class="t">${esc(l[2])}</div><div class="d">${esc(l[3])} ${lk ? `<b style="color:#c92a2a">· 🔒 Sign in with your BASIS Bangkok account to open this simulation.</b>` : fullAccess() ? `<b style="color:#e67700">· up to 100 XP</b>` : `<b style="color:#2b8a3e">· free demo</b>`}</div>`; }
+  else { os.textContent = "▶ Open simulation"; }
+  if (c && id) {} else if (c && u) $("pv").innerHTML = `<div class="u">${esc(cname(c))}</div><div class="t">Unit ${u} · ${esc(uname)}</div><div class="d">Step 3: choose a simulation.</div>`;
   else if (c) $("pv").innerHTML = `<div class="t">${esc(cname(c))}</div><div class="d">${c.units.length} units · ${c.labs.length} simulations. Step 2: choose a unit.</div>`;
   else $("pv").innerHTML = `<div class="t">Start with step 1</div><div class="d">Pick a subject to see its units.</div>`;
   store.set("missk-menu", { s: sSubj.value, u: sUnit.value, l: sSim.value }); }
