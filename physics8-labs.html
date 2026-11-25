@@ -1722,8 +1722,9 @@ WIDGETS.light = (host, mode) => {
   if (mode === "cause") return lightCause(host);
   const def = { normal: ["air", "glass", 40], reflect: ["air", "mirror", 35], index: ["air", "glass", 30], snell: ["air", "mystery", 40], critical: ["glass", "air", 30], tir: ["glass", "air", 50] }[mode];
   const lowOpts = mode === "reflect" ? [["mirror", "mirror (shiny)"], ["glass", "glass"]] : mode === "snell" ? [["mystery", "mystery material"], ["water", "water"], ["glass", "glass"], ["diamond", "diamond"]] : Object.keys(MEDIA).filter(k => k !== "vacuum").map(k => [k, `${k} (n = ${MEDIA[k][0]})`]);
-  const S = shell(host, selectCtl("top", "Light starts in", Object.keys(MEDIA).filter(k => k !== "vacuum").map(k => [k, `${k} (n = ${MEDIA[k][0]})`]), def[0]) + selectCtl("bot", "Light goes into", lowOpts, def[1]) + slider("ang", "Angle of incidence (from the normal)", 0, 89, 1, def[2], "°") + toggleCtl("nrm", "Show the normal", true) + toggleCtl("lab", "Show angles", true));
+  const S = shell(host, selectCtl("top", "Light starts in", Object.keys(MEDIA).filter(k => k !== "vacuum").map(k => [k, `${k} (n = ${MEDIA[k][0]})`]), def[0]) + selectCtl("bot", "Light goes into", lowOpts, def[1]) + slider("ang", "Angle of incidence (from the normal)", 0, 89, 1, def[2], "°") + toggleCtl("nrm", "Show the normal", true) + toggleCtl("lab", "Show angles", true) + btnRow([["pause", "Pause / play light"]]));
   const MYST = 1.6;
+  let t = 0; const an = animator(host, dt => { t += dt; draw(); });
   function draw() {
     const top = val(host, "top"), bot = val(host, "bot"), n1 = MEDIA[top][0], mirror = bot === "mirror", n2 = mirror ? 1 : bot === "mystery" ? MYST : MEDIA[bot][0];
     const th = val(host, "ang") * Math.PI / 180, cx = 320, cy = 180, L = 170;
@@ -1741,6 +1742,14 @@ WIDGETS.light = (host, mode) => {
       if (!mirror && !tir) s += txt(cx + 50, cy + 80, `θ₂ = ${fmt(th2 * 180 / Math.PI)}°`, { b: 1, c: "#c9364b" });
     }
     if (tir) s += txt(cx + 120, cy + 60, "Total internal reflection!", { b: 1, c: "#c9364b", s: 15 });
+    { const base = 110, v1 = base / n1, v2 = base / (mirror ? n1 : n2), T1 = L / v1, gap = 0.5, cyc = T1 + L / Math.min(v1, v2) + 0.3, N = Math.ceil(cyc / gap) + 1;
+      const dot = (x, y, o) => `<circle cx="${x}" cy="${y}" r="6" fill="#ffe066" stroke="#f08c00" stroke-width="2" opacity="${o}"/>`;
+      for (let j = 0; j < N; j++) { const a = ((t - j * gap) % cyc + cyc) % cyc;
+        if (a < T1) { const f = a * v1 / L; s += dot(ix + (cx - ix) * f, iy + (cy - iy) * f, 1); }
+        else { const a2 = a - T1, d1 = a2 * v1, d2 = a2 * v2;
+          if (d1 < L) s += dot(cx + d1 * Math.sin(th), cy - d1 * Math.cos(th), rAlpha < 1 ? Math.max(0.35, rAlpha) : 1);
+          if (!mirror && !tir && d2 < L) s += dot(cx + d2 * Math.sin(th2), cy + d2 * Math.cos(th2), 1); } }
+      if (!mirror && !tir) s += txt(630, 352, n2 > n1 ? "light slows down in " + bot + " (pulses bunch up)" : n2 < n1 ? "light speeds up in " + bot : "same speed in both", { s: 11, c: "#566373", a: "end" }); }
     S.stage.innerHTML = svgWrap(640, 360, s);
     const crit = n1 > n2 && !mirror ? Math.asin(n2 / n1) * 180 / Math.PI : null;
     const lines = [];
@@ -1757,7 +1766,8 @@ WIDGETS.light = (host, mode) => {
     const rows = []; for (let a = 0; a <= 80; a += 10) { const s2 = n1 * Math.sin(a * Math.PI / 180) / n2; rows.push([a, mirror ? a : s2 > 1 ? "TIR" : fmt(Math.asin(s2) * 180 / Math.PI)]); }
     WIDGETS._ctx.table(["θ₁ (°)", mirror ? "θ reflected (°)" : "θ₂ (°)"], rows, mode === "snell" && bot === "mystery" ? "Use any row: n₂ = n₁ sin θ₁ / sin θ₂." : "");
   }
-  bind(host, draw); draw();
+  $("#pause", host).onclick = () => an.running ? an.stop() : an.start();
+  bind(host, draw); draw(); an.start(); return { destroy: () => an.stop() };
 };
 function lightMaterials(host, mode) {
   const mats = mode === "materials" ? [["clear glass", "transparent", 0.95], ["frosted glass", "translucent", 0.45], ["wood", "opaque", 0], ["water", "transparent", 0.9], ["wax paper", "translucent", 0.35], ["aluminum foil", "opaque", 0]]
