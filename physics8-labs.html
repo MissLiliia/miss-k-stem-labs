@@ -1621,7 +1621,7 @@ WIDGETS.skate = (host, mode) => {
   const tr = []; const an = animator(host, dt => {
     const m = val(host, "m"), h0 = val(host, "h0"); const steps = 8;
     for (let k = 0; k < steps; k++) {
-      const d = dt / steps; const y = yT(x); let KE = m * g * h0 - m * g * y - Eth; if (KE <= 0) { dir *= -1; KE = 0.0001; }
+      const d = dt / steps; const y = yT(x); let KE = m * g * h0 - m * g * y - Eth; if (KE <= 0) { if (dir * x > 0) dir *= -1; KE = 0.0001; }
       const v = Math.sqrt(2 * KE / m), slope = 2 * H * x / (L * L), ds = v * d; x += dir * ds / Math.sqrt(1 + slope * slope);
       if (val(host, "fr")) Eth += 0.08 * m * g * ds * 0.25;
       if (Math.abs(x) > L) { x = Math.sign(x) * L; dir *= -1; }
