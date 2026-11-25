@@ -2022,20 +2022,33 @@ WIDGETS.current = (host) => {
 };
 
 /* ------------------------------------------------------------------ wire resistance */
-WIDGETS.wire = (host) => {
-  const RHO = { copper: 1.7e-8, aluminum: 2.8e-8, nichrome: 1.1e-6 };
-  const S = shell(host, selectCtl("mat", "Wire material", [["nichrome", "nichrome (heater wire)"], ["copper", "copper"], ["aluminum", "aluminum"]], "nichrome") + slider("L", "Length", 0.5, 3, 0.5, 1, "m") + slider("d", "Thickness (diameter)", 0.2, 1, 0.1, 0.4, "mm") + `<p class="note">Battery: 3 V</p>`);
+WIDGETS.wire = (host, mode) => {
+  const MATS = [["silver", 1.59e-8, "#ced4da", "conductor"], ["copper", 1.7e-8, "#d9480f", "conductor"], ["gold", 2.44e-8, "#fab005", "conductor"], ["aluminum", 2.8e-8, "#adb5bd", "conductor"], ["tungsten", 5.6e-8, "#868e96", "conductor"], ["iron", 9.7e-8, "#495057", "conductor"], ["nichrome", 1.1e-6, "#7c6f64", "conductor (high resistance)"], ["graphite (pencil lead)", 3.5e-5, "#343a40", "poor conductor"], ["rubber", 1e13, "#212529", "insulator"], ["plastic", 1e16, "#e9ecef", "insulator"]];
+  const RHO = Object.fromEntries(MATS.map(m => [m[0], m[1]])), COL = Object.fromEntries(MATS.map(m => [m[0], m[2]])), KIND = Object.fromEntries(MATS.map(m => [m[0], m[3]]));
+  const S = shell(host, selectCtl("mat", "Wire material", MATS.map(m => [m[0], m[0] + (m[3] === "insulator" ? " (insulator)" : "")]), "nichrome") + slider("L", "Length", 0.5, 3, 0.5, 1, "m") + slider("d", "Thickness (diameter)", 0.2, 1, 0.1, 0.4, "mm") + `<p class="note">Battery: 3 V · bulb resistance 0.5 Ω</p>`);
+  const VB = 3, RB = 0.5, PMAX = VB * VB / RB;
+  let t = 0; const an = animator(host, dt => { t += dt; draw(); });
+  const calc = (mat, L, dmm) => { const d = dmm / 1000, A = Math.PI * d * d / 4, R = RHO[mat] * L / A, I = VB / (R + RB), P = I * I * RB; return { R, I, P, b: Math.sqrt(P / PMAX) }; };
   function draw() {
-    const L = val(host, "L"), d = val(host, "d") / 1000, A = Math.PI * d * d / 4, R = RHO[val(host, "mat")] * L / A, I = 3 / (R + 0.5);
-    const len = 120 + L * 140, th = 2 + val(host, "d") * 14;
-    let s = `<path d="M60 90 H80 M60 90 V250 H${100 + len} V90 H${80 + len}" stroke="#1e2a38" stroke-width="2.5" fill="none"/><line x1="80" y1="90" x2="${80 + len}" y2="90" stroke="${val(host, "mat") === "copper" ? "#d9480f" : val(host, "mat") === "aluminum" ? "#adb5bd" : "#868e96"}" stroke-width="${th}" stroke-linecap="round"/>`;
-    s += txt(80 + len / 2, 70, `${L} m long · ${val(host, "d")} mm thick`, { b: 1 }) + `<circle cx="${(100 + len) / 2 + 30}" cy="250" r="22" fill="rgba(255,212,59,${clamp(I / 4, 0.1, 1)})" stroke="#1e2a38" stroke-width="2"/>` + txt((100 + len) / 2 + 30, 290, "bulb", { s: 12 });
+    const mat = val(host, "mat"), L = val(host, "L"), dmm = val(host, "d"), { R, I, b } = calc(mat, L, dmm);
+    const len = 120 + L * 140, th = 2 + dmm * 14, bx = (100 + len) / 2 + 30, by = 250, fl = b > 0.02 ? 0.95 + 0.05 * Math.sin(t * 17) : 1, bv = b * fl;
+    let s = `<defs><radialGradient id="wglow"><stop offset="0" stop-color="#fff9db" stop-opacity="1"/><stop offset=".35" stop-color="#ffe066" stop-opacity=".85"/><stop offset="1" stop-color="#ffd43b" stop-opacity="0"/></radialGradient></defs>`;
+    s += `<path d="M60 90 H80 M60 90 V250 H${100 + len} V90 H${80 + len}" stroke="#1e2a38" stroke-width="2.5" fill="none"/><line x1="80" y1="90" x2="${80 + len}" y2="90" stroke="${COL[mat]}" stroke-width="${th}" stroke-linecap="round"${mat === "plastic" ? ' stroke-dasharray="1 0" style="filter:drop-shadow(0 0 1px #868e96)"' : ""}/>`;
+    if (I > 0.005) { const sp = clamp(I * 30, 3, 180), off = (t * sp) % 26, P = [[60, 160], [60, 90], [80 + len, 90], [100 + len, 90], [100 + len, 250], [60, 250], [60, 170]]; let segs = [], tot = 0; for (let k = 1; k < P.length; k++) { const l = Math.hypot(P[k][0] - P[k - 1][0], P[k][1] - P[k - 1][1]); segs.push(l); tot += l; }
+      for (let dd = off; dd < tot; dd += 26) { let r = dd, k = 0; while (k < segs.length - 1 && r > segs[k]) { r -= segs[k]; k++; } const f = segs[k] ? r / segs[k] : 0; s += `<circle cx="${P[k][0] + (P[k + 1][0] - P[k][0]) * f}" cy="${P[k][1] + (P[k + 1][1] - P[k][1]) * f}" r="3.5" fill="#0e7c86"/>`; } }
+    if (bv > 0.02) s += `<circle cx="${bx}" cy="${by}" r="${24 + 46 * bv}" fill="url(#wglow)" opacity="${bv}"/>` + (bv > 0.4 ? Array.from({ length: 8 }, (_, k) => { const a = k * Math.PI / 4, r1 = 28, r2 = 28 + 18 * bv; return `<line x1="${bx + r1 * Math.cos(a)}" y1="${by + r1 * Math.sin(a)}" x2="${bx + r2 * Math.cos(a)}" y2="${by + r2 * Math.sin(a)}" stroke="#fab005" stroke-width="3" stroke-linecap="round" opacity="${bv}"/>`; }).join("") : "");
+    s += `<circle cx="${bx}" cy="${by}" r="22" fill="${bv > 0.02 ? `rgb(255,${Math.round(250 - 45 * bv)},${Math.round(210 - 180 * bv)})` : "#f1f3f5"}" stroke="#1e2a38" stroke-width="2"/><path d="M${bx - 9} ${by + 6} q4.5 -14 9 0 q4.5 -14 9 0" fill="none" stroke="${bv > 0.02 ? "#e8590c" : "#868e96"}" stroke-width="2"/>` + txt(bx, by + 40, "bulb", { s: 12 });
     s += `<line x1="40" y1="150" x2="80" y2="150" stroke="#1e2a38" stroke-width="3"/><line x1="48" y1="164" x2="72" y2="164" stroke="#1e2a38" stroke-width="6"/>` + txt(30, 160, "3 V", { b: 1, a: "end" });
+    s += txt(80 + len / 2, 70, `${mat}: ${L} m long · ${dmm} mm thick`, { b: 1 });
+    const pct = Math.round(b * 100), mx = 470, my = 290;
+    s += txt(mx, my - 8, "bulb brightness", { s: 11, c: "#566373", a: "start" }) + `<rect x="${mx}" y="${my}" width="150" height="12" rx="6" fill="#e9ecef"/><rect x="${mx}" y="${my}" width="${1.5 * pct}" height="12" rx="6" fill="#fab005"/>` + txt(mx + 156, my + 11, `${pct}%`, { s: 12, b: 1, a: "start" });
     S.stage.innerHTML = svgWrap(640, 320, s);
-    S.ro.innerHTML = `Resistance R = <span class="big">${fmt(R)} Ω</span><br>Current I ≈ <b>${fmt(I)} A</b><br><span class="note">Resistance = how much a component opposes current. Longer wire → MORE resistance. Thicker wire → LESS resistance.</span>`;
-    WIDGETS._ctx.table(["length (m)", "R (Ω) at this thickness"], [0.5, 1, 1.5, 2, 3].map(l => [l, fmt(RHO[val(host, "mat")] * l / A)]));
+    const off = I < 0.005, kind = KIND[mat];
+    S.ro.innerHTML = `Resistance R = <span class="big">${R > 1e6 ? R.toExponential(1) : fmt(R)} Ω</span><br>Current I ≈ <b>${off ? "0 (practically none)" : fmt(I) + " A"}</b> · bulb brightness <b>${pct}%</b><br><span class="note">${kind === "insulator" ? `${mat} is an <b>insulator</b>: it almost stops the current, so the bulb stays dark.` : kind === "poor conductor" ? `${mat} conducts, but poorly: very high resistance → the bulb barely glows (or not at all).` : mat === "nichrome" ? "Nichrome has high resistance (it is used in heaters), so less current flows and the bulb is dim." : `${mat} is a good conductor: low resistance → big current → bright bulb.`} Longer wire → MORE resistance. Thicker wire → LESS resistance.</span>`;
+    if (mode === "lt") WIDGETS._ctx.table(["length (m)", "R (Ω) at this thickness", "bulb brightness"], [0.5, 1, 1.5, 2, 3].map(l => { const c = calc(mat, l, dmm); return [l, c.R > 1e6 ? c.R.toExponential(1) : fmt(c.R), Math.round(c.b * 100) + "%"]; }));
+    else WIDGETS._ctx.table(["material", "type", "R of this wire (Ω)", "bulb brightness"], MATS.map(m => { const c = calc(m[0], L, dmm); return [m[0], m[3], c.R > 1e6 ? c.R.toExponential(1) : fmt(c.R), Math.round(c.b * 100) + "%"]; }), "Same length and thickness — only the material changes.");
   }
-  bind(host, draw); draw();
+  bind(host, draw); draw(); an.start(); return { destroy: () => an.stop() };
 };
 
 /* ---- widgets_d.js ---- */
