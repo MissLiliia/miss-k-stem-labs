@@ -1725,6 +1725,11 @@ WIDGETS.collide = (host, mode) => {
     const wa = 30 + R.m1 * 5, wb = 30 + R.m2 * 5;
     let s = `<rect x="0" y="230" width="640" height="16" fill="#ced4da"/>` + (wall ? `<rect x="${500 + wa / 2}" y="100" width="20" height="130" fill="#495057"/>` : "");
     s += box(clamp(xa, -100, 700) - wa / 2, 230 - wa * 0.8, wa, wa * 0.8, "#0e7c86", "A") + (wall ? "" : box(clamp(xb, -100, 700) - wb / 2, 230 - wb * 0.8, wb, wb * 0.8, "#7c53c9", "B"));
+    const after = t > meet, vA = after ? R.u1 : R.v1, vB = after ? R.u2 : R.v2;
+    const varrow = (x, w, v, col) => { if (x < -20 || x > 660 || Math.abs(v) < 0.001) return ""; const y = 230 - w * 0.8 - 14, L = clamp(v * 9, -75, 75); return arrow(x, y, x + L, y, col, 3) + txt(x + L + (v > 0 ? 5 : -5), y + 4, `${fmt(v)} m/s`, { s: 11, c: col, b: 1, a: v > 0 ? "start" : "end" }); };
+    const info = (x, a, name, m, v, col) => txt(x, 80, `Cart ${name}: m = ${m} kg`, { s: 13, c: col, b: 1, a }) + txt(x, 98, `v = ${fmt(v)} m/s${Math.abs(v) < 0.001 ? " (at rest)" : ""}`, { s: 13, c: col, a }) + txt(x, 116, `p = m·v = ${m} × ${v < 0 ? `(${fmt(v)})` : fmt(v)} = ${fmt(m * v)} kg·m/s`, { s: 13, c: col, b: 1, a });
+    s += varrow(xa, wa, vA, "#0e7c86") + (wall ? "" : varrow(xb, wb, vB, "#7c53c9")) + info(16, "start", "A", R.m1, vA, "#0e7c86") + (wall ? "" : info(624, "end", "B", R.m2, vB, "#7c53c9"));
+    s += txt(320, 56, wall ? `momentum of A = ${fmt(R.m1 * vA)} kg·m/s` : `total momentum = ${fmt(R.m1 * vA + R.m2 * vB)} kg·m/s`, { s: 14, c: "#a86a00", b: 1 }) + txt(320, 268, "velocity: right = +, left = −", { s: 11, c: "#868e96" });
     S.stage.innerHTML = svgWrap(640, 280, s + txt(320, 30, t > meet ? "After the collision" : "Before the collision", { b: 1 }));
     const pb = R.m1 * R.v1 + R.m2 * R.v2, pa = R.m1 * R.u1 + R.m2 * R.u2, KEb = 0.5 * R.m1 * R.v1 ** 2 + 0.5 * R.m2 * R.v2 ** 2, KEa = 0.5 * R.m1 * R.u1 ** 2 + 0.5 * R.m2 * R.u2 ** 2;
     S.ro.innerHTML = wall ? `p before = ${R.m1} × ${R.v1} = <b>${fmt(R.m1 * R.v1)} kg·m/s</b><br>p after = ${R.m1} × (${fmt(R.u1)}) = <b>${fmt(R.m1 * R.u1)} kg·m/s</b><br>Δp = p<sub>after</sub> − p<sub>before</sub> = <span class="big">${fmt(R.m1 * (R.u1 - R.v1))} kg·m/s</span>`
